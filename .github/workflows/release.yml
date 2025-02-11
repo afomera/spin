@@ -34,13 +34,12 @@ jobs:
             echo "Building for $OS/$ARCH..."
             mkdir -p "dist/spin_${OS}_${ARCH}"
             GOOS=$OS GOARCH=$ARCH go build -o "dist/spin_${OS}_${ARCH}/$output_name" .
-            cd "dist/spin_${OS}_${ARCH}"
+            
             if [ "$OS" = "windows" ]; then
-              zip "../../spin_${OS}_${ARCH}.zip" "$output_name"
+              (cd "dist/spin_${OS}_${ARCH}" && zip "../spin_${OS}_${ARCH}.zip" "$output_name")
             else
-              tar czf "../../spin_${OS}_${ARCH}.tar.gz" "$output_name"
+              (cd "dist/spin_${OS}_${ARCH}" && tar czf "../spin_${OS}_${ARCH}.tar.gz" "$output_name")
             fi
-            cd ../..
           done
           echo "Build complete. Contents of dist directory:"
           ls -la dist/
@@ -49,7 +48,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v${{ github.run_number }}
           release_name: Release v${{ github.run_number }}
@@ -58,21 +57,13 @@ jobs:
 
       - name: Upload Release Assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Contents of dist directory:"
           ls -la dist/
 
-          # Upload tar.gz files
-          for file in dist/spin_*_*.tar.gz; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              gh release upload "v${{ github.run_number }}" "$file"
-            fi
-          done
-
-          # Upload zip files
-          for file in dist/spin_*_*.zip; do
+          # Upload all release assets
+          for file in dist/spin_*.{tar.gz,zip}; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
               gh release upload "v${{ github.run_number }}" "$file"
