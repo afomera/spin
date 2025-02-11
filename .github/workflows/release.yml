@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+          cache: true
+
+      - name: Build binaries
+        run: |
+          PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
+          for platform in $PLATFORMS; do
+            OS=${platform%/*}
+            ARCH=${platform#*/}
+            output_name="spin"
+            if [ "$OS" = "windows" ]; then
+              output_name="spin.exe"
+            fi
+            GOOS=$OS GOARCH=$ARCH go build -o "dist/spin_${OS}_${ARCH}/$output_name" .
+            cd "dist/spin_${OS}_${ARCH}"
+            if [ "$OS" = "windows" ]; then
+              zip "../../spin_${OS}_${ARCH}.zip" "$output_name"
+            else
+              tar czf "../../spin_${OS}_${ARCH}.tar.gz" "$output_name"
+            fi
+            cd ../..
+          done
+        working-directory: dev_spin
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for asset in dev_spin/spin_*.{tar.gz,zip}; do
+            gh release upload "v${{ github.run_number }}" "$asset"
+          done
