@@ -22,6 +22,7 @@ jobs:
 
       - name: Build binaries
         run: |
+          mkdir -p dist
           PLATFORMS="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64"
           for platform in $PLATFORMS; do
             OS=${platform%/*}
@@ -39,7 +40,6 @@ jobs:
             fi
             cd ../..
           done
-        working-directory: dev_spin
 
       - name: Create Release
         id: create_release
@@ -56,6 +56,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for asset in dev_spin/spin_*.{tar.gz,zip}; do
+          for asset in dist/spin_*.{tar.gz,zip}; do
             gh release upload "v${{ github.run_number }}" "$asset"
           done
