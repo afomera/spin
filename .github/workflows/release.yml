@@ -31,6 +31,8 @@ jobs:
             if [ "$OS" = "windows" ]; then
               output_name="spin.exe"
             fi
+            echo "Building for $OS/$ARCH..."
+            mkdir -p "dist/spin_${OS}_${ARCH}"
             GOOS=$OS GOARCH=$ARCH go build -o "dist/spin_${OS}_${ARCH}/$output_name" .
             cd "dist/spin_${OS}_${ARCH}"
             if [ "$OS" = "windows" ]; then
@@ -40,6 +42,8 @@ jobs:
             fi
             cd ../..
           done
+          echo "Build complete. Contents of dist directory:"
+          ls -la dist/
 
       - name: Create Release
         id: create_release
@@ -56,6 +60,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for asset in dist/spin_*.{tar.gz,zip}; do
-            gh release upload "v${{ github.run_number }}" "$asset"
+          echo "Contents of dist directory:"
+          ls -la dist/
+
+          # Upload tar.gz files
+          for file in dist/spin_*_*.tar.gz; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              gh release upload "v${{ github.run_number }}" "$file"
+            fi
+          done
+
+          # Upload zip files
+          for file in dist/spin_*_*.zip; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              gh release upload "v${{ github.run_number }}" "$file"
+            fi
           done
