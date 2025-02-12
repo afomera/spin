@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -11,9 +12,11 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/afomera/spin/internal/config"
 	"github.com/afomera/spin/internal/logger"
+	psutil "github.com/shirou/gopsutil/v3/process"
 )
 
 type ProcessStatus string
@@ -27,14 +30,18 @@ const (
 
 // Process represents a running process
 type Process struct {
-	Name         string
-	Command      *exec.Cmd
-	Status       ProcessStatus
-	Error        error
-	OutputFile   string // Path to the output file
-	IsDebug      bool   // Whether this is a debug session
-	OutputWriter io.Writer
-	TmuxSession  string // Name of the tmux session
+	Name          string
+	Command       *exec.Cmd
+	Status        ProcessStatus
+	Error         error
+	OutputFile    string // Path to the output file
+	IsDebug       bool   // Whether this is a debug session
+	OutputWriter  io.Writer
+	TmuxSession   string // Name of the tmux session
+	CPUPercent    float64
+	MemoryUsage   uint64 // in bytes
+	MemoryPercent float64
+	LastUpdated   time.Time
 }
 
 // Manager handles multiple processes
@@ -44,6 +51,7 @@ type Manager struct {
 	mu        sync.RWMutex
 	wg        sync.WaitGroup
 	store     *Store
+	quiet     bool // When true, suppress stdout/stderr output
 }
 
 var (
@@ -57,10 +65,24 @@ func GetManager(cfg *config.Config) *Manager {
 		instance = &Manager{
 			processes: make(map[string]*Process),
 			config:    cfg,
-			store:     NewStore(),
+			quiet:     false, // Initialize quiet mode to false
 		}
+		// Create store after manager is initialized
+		instance.store = NewStore(instance)
 	})
 	return instance
+}
+
+// SetQuiet enables or disables stdout/stderr output
+func (m *Manager) SetQuiet(quiet bool) {
+	m.quiet = quiet
+}
+
+// debugf prints debug messages if not in quiet mode
+func (m *Manager) debugf(format string, args ...interface{}) {
+	if !m.quiet {
+		fmt.Printf(format, args...)
+	}
 }
 
 // getSpinDir returns the spin directory path
@@ -98,34 +120,34 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 	process, exists := m.processes[name]
 	m.mu.RUnlock()
 	if exists {
-		fmt.Printf("Debug: Found process %s in memory\n", name)
+		m.debugf("Debug: Found process %s in memory\n", name)
 		return process, nil
 	}
 
 	// Then check the store
 	info, err := m.store.GetProcess(name)
 	if err != nil {
-		fmt.Printf("Debug: Process %s not found in store: %v\n", name)
+		m.debugf("Debug: Process %s not found in store: %v\n", name)
 		return nil, err
 	}
-	fmt.Printf("Debug: Found process %s in store (PID: %d)\n", name, info.Pid)
+	m.debugf("Debug: Found process %s in store (PID: %d)\n", name, info.Pid)
 
 	// Try to find the process
 	proc, err := os.FindProcess(info.Pid)
 	if err != nil {
-		fmt.Printf("Debug: Failed to find process %s with PID %d: %v\n", name, info.Pid, err)
+		m.debugf("Debug: Failed to find process %s with PID %d: %v\n", name, info.Pid, err)
 		return nil, fmt.Errorf("failed to find process: %w", err)
 	}
 
 	// Check if process is still running
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		fmt.Printf("Debug: Process %s (PID: %d) is not running: %v\n", name, info.Pid, err)
+		m.debugf("Debug: Process %s (PID: %d) is not running: %v\n", name, info.Pid, err)
 		// Remove from store since it's not running
 		m.store.RemoveProcess(name)
 		return nil, fmt.Errorf("process is not running: %w", err)
 	}
 
-	fmt.Printf("Debug: Process %s (PID: %d) is running\n", name, info.Pid)
+	m.debugf("Debug: Process %s (PID: %d) is running\n", name, info.Pid)
 
 	// Get spin directory for output file
 	spinDir, err := getSpinDir()
@@ -140,7 +162,7 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 	listCmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_pid}")
 	output, err := listCmd.Output()
 	if err != nil {
-		fmt.Printf("Debug: No tmux session for process %s\n", name)
+		m.debugf("Debug: No tmux session for process %s\n", name)
 		return nil, fmt.Errorf("process has no tmux session")
 	}
 
@@ -159,13 +181,17 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 
 	// Create a new Process instance
 	process = &Process{
-		Name:        info.Name,
-		Command:     &exec.Cmd{Process: proc},
-		Status:      info.Status,
-		OutputFile:  filepath.Join(spinDir, "output", fmt.Sprintf("%s.log", name)),
-		TmuxSession: sessionName,
+		Name:          info.Name,
+		Command:       &exec.Cmd{Process: proc},
+		Status:        info.Status,
+		OutputFile:    filepath.Join(spinDir, "output", fmt.Sprintf("%s.log", name)),
+		TmuxSession:   sessionName,
+		CPUPercent:    info.CPUPercent,
+		MemoryUsage:   info.MemoryUsage,
+		MemoryPercent: info.MemoryPercent,
+		LastUpdated:   info.LastUpdated,
 	}
-	fmt.Printf("Debug: Found tmux session for process %s\n", name)
+	m.debugf("Debug: Found tmux session for process %s\n", name)
 
 	// Add to manager's processes map
 	m.mu.Lock()
@@ -180,7 +206,7 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	fmt.Printf("Debug: Starting process %s: %s %v\n", name, command, args)
+	m.debugf("Debug: Starting process %s: %s %v\n", name, command, args)
 
 	if _, exists := m.processes[name]; exists {
 		return fmt.Errorf("process %s is already running", name)
@@ -251,9 +277,14 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 		return fmt.Errorf("failed to send enter to tmux session: %w", err)
 	}
 
-	// Create prefixed writer for output
-	prefixedWriter := logger.CreatePrefixedWriter(name)
-	outputWriter := io.MultiWriter(f, prefixedWriter)
+	// Create output writer
+	var outputWriter io.Writer
+	if m.quiet {
+		outputWriter = f
+	} else {
+		prefixedWriter := logger.CreatePrefixedWriter(name)
+		outputWriter = io.MultiWriter(f, prefixedWriter)
+	}
 
 	// Set up pipe-pane to capture output in real-time
 	pipeCmd := exec.Command("tmux", "pipe-pane", "-t", sessionName, fmt.Sprintf("while IFS= read -r line; do echo \"$line\" >> '%s'; echo \"$line\"; done", outputFile))
@@ -264,13 +295,17 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	}
 
 	process := &Process{
-		Name:         name,
-		Command:      createCmd, // Store the tmux command
-		Status:       StatusRunning,
-		OutputFile:   outputFile,
-		OutputWriter: outputWriter,
-		IsDebug:      isDebugCommand(command, args),
-		TmuxSession:  sessionName,
+		Name:          name,
+		Command:       createCmd, // Store the tmux command
+		Status:        StatusRunning,
+		OutputFile:    outputFile,
+		OutputWriter:  outputWriter,
+		IsDebug:       isDebugCommand(command, args),
+		TmuxSession:   sessionName,
+		CPUPercent:    0,
+		MemoryUsage:   0,
+		MemoryPercent: 0,
+		LastUpdated:   time.Now(),
 	}
 
 	m.processes[name] = process
@@ -279,7 +314,7 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	listCmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_pid}")
 	output, err := listCmd.Output()
 	if err != nil {
-		fmt.Printf("Warning: Failed to get pane PID: %v\n", err)
+		m.debugf("Warning: Failed to get pane PID: %v\n", err)
 		return fmt.Errorf("failed to get pane PID: %w", err)
 	}
 
@@ -287,7 +322,7 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	panePid := strings.TrimSpace(string(output))
 	pid, err := strconv.Atoi(panePid)
 	if err != nil {
-		fmt.Printf("Warning: Failed to parse pane PID: %v\n", err)
+		m.debugf("Warning: Failed to parse pane PID: %v\n", err)
 		return fmt.Errorf("failed to parse pane PID: %w", err)
 	}
 
@@ -299,9 +334,9 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 		WorkDir: workDir,
 	}
 
-	fmt.Printf("Debug: Saving process %s (PID: %d) to store\n", name, info.Pid)
+	m.debugf("Debug: Saving process %s (PID: %d) to store\n", name, info.Pid)
 	if err := m.store.SaveProcess(info); err != nil {
-		fmt.Printf("Warning: Failed to save process info: %v\n", err)
+		m.debugf("Warning: Failed to save process info: %v\n", err)
 	}
 
 	return nil
@@ -361,14 +396,21 @@ func (m *Manager) DebugProcess(name string) error {
 		return fmt.Errorf("process %s is not running in tmux", name)
 	}
 
-	fmt.Printf("Attaching to process '%s' in debug mode...\n", name)
-	fmt.Println("Press Ctrl+D to detach")
+	if !m.quiet {
+		fmt.Printf("Attaching to process '%s' in debug mode...\n", name)
+		fmt.Println("Press Ctrl+D to detach")
+	}
 
 	// Attach to the tmux session
 	attachCmd := exec.Command("tmux", "-f", configPath, "attach-session", "-t", sessionName)
 	attachCmd.Stdin = os.Stdin
-	attachCmd.Stdout = os.Stdout
-	attachCmd.Stderr = os.Stderr
+	if m.quiet {
+		attachCmd.Stdout = ioutil.Discard
+		attachCmd.Stderr = ioutil.Discard
+	} else {
+		attachCmd.Stdout = os.Stdout
+		attachCmd.Stderr = os.Stderr
+	}
 
 	return attachCmd.Run()
 }
@@ -384,7 +426,7 @@ func (m *Manager) StopProcess(name string) error {
 	if process.TmuxSession != "" {
 		killCmd := exec.Command("tmux", "kill-session", "-t", process.TmuxSession)
 		if err := killCmd.Run(); err != nil {
-			fmt.Printf("Warning: Failed to kill tmux session: %v\n", err)
+			m.debugf("Warning: Failed to kill tmux session: %v\n", err)
 		}
 	}
 
@@ -398,7 +440,7 @@ func (m *Manager) StopProcess(name string) error {
 
 	// Remove from store
 	if err := m.store.RemoveProcess(name); err != nil {
-		fmt.Printf("Warning: Failed to remove process info: %v\n", err)
+		m.debugf("Warning: Failed to remove process info: %v\n", err)
 	}
 
 	// Remove from in-memory map
@@ -432,7 +474,9 @@ func (m *Manager) HandleSignals() {
 
 	go func() {
 		<-sigChan
-		fmt.Println("\nReceived shutdown signal. Stopping all processes...")
+		if !m.quiet {
+			fmt.Println("\nReceived shutdown signal. Stopping all processes...")
+		}
 		m.StopAll()
 	}()
 }
@@ -446,26 +490,78 @@ func (m *Manager) GetProcessStatus(name string) (ProcessStatus, error) {
 	return process.Status, nil
 }
 
+// updateResourceUsage updates CPU and memory usage for a process
+func (m *Manager) updateResourceUsage(p *Process) error {
+	if p.Command == nil || p.Command.Process == nil {
+		return fmt.Errorf("process not initialized")
+	}
+
+	proc, err := psutil.NewProcess(int32(p.Command.Process.Pid))
+	if err != nil {
+		return fmt.Errorf("failed to get process stats: %w", err)
+	}
+
+	// Get CPU percent
+	cpuPercent, err := proc.CPUPercent()
+	if err != nil {
+		return fmt.Errorf("failed to get CPU usage: %w", err)
+	}
+	p.CPUPercent = cpuPercent
+
+	// Get memory info
+	memInfo, err := proc.MemoryInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get memory info: %w", err)
+	}
+	p.MemoryUsage = memInfo.RSS // Resident Set Size
+
+	// Get memory percent
+	memPercent, err := proc.MemoryPercent()
+	if err != nil {
+		return fmt.Errorf("failed to get memory percent: %w", err)
+	}
+	p.MemoryPercent = float64(memPercent)
+
+	p.LastUpdated = time.Now()
+
+	// Update store with resource usage
+	info := ProcessInfo{
+		Name:          p.Name,
+		Pid:           p.Command.Process.Pid,
+		Status:        p.Status,
+		WorkDir:       "", // We don't track this in Process struct
+		CPUPercent:    p.CPUPercent,
+		MemoryUsage:   p.MemoryUsage,
+		MemoryPercent: p.MemoryPercent,
+		LastUpdated:   p.LastUpdated,
+	}
+	return m.store.SaveProcess(info)
+}
+
 // ListProcesses returns a list of all processes
 func (m *Manager) ListProcesses() []*Process {
 	// Get processes from store
 	storeProcesses, err := m.store.ListProcesses()
 	if err != nil {
-		fmt.Printf("Debug: Error listing processes from store: %v\n", err)
+		m.debugf("Debug: Error listing processes from store: %v\n", err)
 		return nil
 	}
 
-	fmt.Printf("Debug: Found %d processes in store\n", len(storeProcesses))
+	m.debugf("Debug: Found %d processes in store\n", len(storeProcesses))
 
 	// Convert store processes to Process objects
 	processes := make([]*Process, 0, len(storeProcesses))
 	for _, info := range storeProcesses {
 		if process, err := m.findProcess(info.Name); err == nil {
+			// Update resource usage
+			if err := m.updateResourceUsage(process); err != nil {
+				m.debugf("Debug: Failed to update resource usage for %s: %v\n", process.Name, err)
+			}
 			processes = append(processes, process)
 		}
 	}
 
-	fmt.Printf("Debug: Returning %d active processes\n", len(processes))
+	m.debugf("Debug: Returning %d active processes\n", len(processes))
 	return processes
 }
 
