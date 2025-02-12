@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: "1.21"
           cache: true
 
       - name: Install jq
@@ -33,27 +33,27 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          
+
           echo "Decoding certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          
+
           echo "Certificate file size:"
           ls -l certificate.p12
-          
+
           echo "Importing certificate..."
           security import certificate.p12 \
             -k build.keychain \
             -f pkcs12 \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
-          
+
           echo "Setting key partition list..."
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
             build.keychain
-          
+
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
@@ -211,31 +211,17 @@ jobs:
               exit 1
             fi
             
-            # Create install script
-            cat > "dist/spin_darwin_$arch/install.sh" << "EOSCRIPT"
-#!/bin/bash
-set -e
-
-# Get the directory of this script
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-# Extract the binary from the app bundle
-cp "$DIR/Spin.app/Contents/MacOS/spin" /usr/local/bin/spin
-
-# Make it executable
-chmod +x /usr/local/bin/spin
-
-echo "Spin CLI installed successfully! Run 'spin' to get started."
-EOSCRIPT
-            chmod +x "dist/spin_darwin_$arch/install.sh"
+            # Copy install script
+            cp scripts/install_macos.sh "dist/spin_darwin_$arch/"
+            chmod +x "dist/spin_darwin_$arch/install_macos.sh"
             
             # Clean up notarization zip
             rm -f "dist/spin_darwin_$arch.zip"
           done
-          
+
           echo "Creating final archives..."
           for arch in "amd64" "arm64"; do
-            (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" Spin.app install.sh)
+            (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" Spin.app install_macos.sh)
           done
 
       - name: Create other platform archives
@@ -262,7 +248,7 @@ EOSCRIPT
         run: |
           echo "Contents of dist directory:"
           ls -la dist/
-          
+
           # Upload all release assets
           for file in dist/spin_*.{tar.gz,zip}; do
             if [ -f "$file" ]; then
