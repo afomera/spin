@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: '1.21'
           cache: true
 
       - name: Install jq
@@ -33,27 +33,27 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-
+          
           echo "Decoding certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-
+          
           echo "Certificate file size:"
           ls -l certificate.p12
-
+          
           echo "Importing certificate..."
           security import certificate.p12 \
             -k build.keychain \
             -f pkcs12 \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
-
+          
           echo "Setting key partition list..."
           security set-key-partition-list \
             -S apple-tool:,apple:,codesign: \
             -s \
             -k "$KEYCHAIN_PASSWORD" \
             build.keychain
-
+          
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
@@ -134,9 +134,10 @@ jobs:
             security find-identity -v -p codesigning build.keychain
             
             # Create app bundle structure
-            mkdir -p "dist/Spin.app/Contents/MacOS"
-            cp Info.plist "dist/Spin.app/Contents/"
-            cp "dist/spin_darwin_$arch/spin" "dist/Spin.app/Contents/MacOS/"
+            mkdir -p "dist/spin_darwin_$arch/Spin.app/Contents/MacOS"
+            cp Info.plist "dist/spin_darwin_$arch/Spin.app/Contents/"
+            cp "dist/spin_darwin_$arch/spin" "dist/spin_darwin_$arch/Spin.app/Contents/MacOS/"
+            rm "dist/spin_darwin_$arch/spin"
             
             # Sign the binary and app bundle
             codesign --force -s "$CERTIFICATE_NAME" \
@@ -144,19 +145,19 @@ jobs:
               --options runtime \
               --entitlements entitlements.plist \
               --prefix com.afomera. \
-              -v "dist/Spin.app/Contents/MacOS/spin"
+              -v "dist/spin_darwin_$arch/Spin.app/Contents/MacOS/spin"
             
             codesign --force -s "$CERTIFICATE_NAME" \
               --timestamp \
               --options runtime \
               --entitlements entitlements.plist \
-              -v "dist/Spin.app"
+              -v "dist/spin_darwin_$arch/Spin.app"
             
             # Verify signing
-            codesign -vv --deep --strict "dist/Spin.app"
+            codesign -vv --deep --strict "dist/spin_darwin_$arch/Spin.app"
             
             # Create zip for notarization
-            ditto -c -k --keepParent "dist/Spin.app" "dist/spin_darwin_$arch.zip"
+            ditto -c -k --keepParent "dist/spin_darwin_$arch/Spin.app" "dist/spin_darwin_$arch.zip"
             
             echo "Notarizing darwin_$arch..."
             submission_id=$(xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
@@ -187,10 +188,8 @@ jobs:
                 attempt=1
                 while [ $attempt -le $max_attempts ]; do
                   echo "Attempting to staple (attempt $attempt of $max_attempts)..."
-                  if xcrun stapler staple "dist/Spin.app"; then
+                  if xcrun stapler staple "dist/spin_darwin_$arch/Spin.app"; then
                     echo "Stapling succeeded!"
-                    # Copy the stapled binary back
-                    cp "dist/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
                     break
                   else
                     if [ $attempt -eq $max_attempts ]; then
@@ -212,13 +211,31 @@ jobs:
               exit 1
             fi
             
-            # Clean up
-            rm -rf "dist/Spin.app"
-          done
+            # Create install script
+            cat > "dist/spin_darwin_$arch/install.sh" << 'EOF'
+#!/bin/bash
+set -e
 
+# Get the directory of this script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Extract the binary from the app bundle
+cp "$DIR/Spin.app/Contents/MacOS/spin" /usr/local/bin/spin
+
+# Make it executable
+chmod +x /usr/local/bin/spin
+
+echo "Spin CLI installed successfully! Run 'spin' to get started."
+EOF
+            chmod +x "dist/spin_darwin_$arch/install.sh"
+            
+            # Clean up notarization zip
+            rm -f "dist/spin_darwin_$arch.zip"
+          done
+          
           echo "Creating final archives..."
           for arch in "amd64" "arm64"; do
-            (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" "spin")
+            (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" Spin.app install.sh)
           done
 
       - name: Create other platform archives
@@ -245,7 +262,7 @@ jobs:
         run: |
           echo "Contents of dist directory:"
           ls -la dist/
-
+          
           # Upload all release assets
           for file in dist/spin_*.{tar.gz,zip}; do
             if [ -f "$file" ]; then
