@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/afomera/dev_spin/internal/process"
+	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
 )
 

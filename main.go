@@ -1,6 +1,6 @@
 package main
 
-import "github.com/afomera/dev_spin/cmd"
+import "github.com/afomera/spin/cmd"
 
 func main() {
 	cmd.Execute()

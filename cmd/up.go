@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/afomera/dev_spin/internal/config"
-	"github.com/afomera/dev_spin/internal/process"
+	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
 )
 

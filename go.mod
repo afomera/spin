@@ -1,4 +1,4 @@
-module github.com/afomera/dev_spin
+module github.com/afomera/spin
 
 go 1.21.0
 

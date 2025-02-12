@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/afomera/dev_spin/internal/detector"
+	"github.com/afomera/spin/internal/detector"
 )
 
 // Config represents the structure of spin.config.json

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/afomera/dev_spin/internal/config"
-	"github.com/afomera/dev_spin/internal/userconfig"
+	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/userconfig"
 	"github.com/spf13/cobra"
 )
 

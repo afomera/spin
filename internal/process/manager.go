@@ -12,8 +12,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/afomera/dev_spin/internal/config"
-	"github.com/afomera/dev_spin/internal/logger"
+	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/logger"
 )
 
 type ProcessStatus string
