@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-latest # Changed to macOS runner for signing
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +24,6 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
@@ -33,6 +32,9 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          echo "Available certificates:"
+          security find-identity -v -p codesigning build.keychain
 
       - name: Install gon for notarization
         run: |
@@ -49,7 +51,7 @@ jobs:
               "password": "${{ secrets.APPLE_ID_PASSWORD }}"
             },
             "sign": {
-              "application_identity": "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}"
+              "application_identity": "${{ secrets.CERTIFICATE_NAME }}"
             }
           }
           EOF
@@ -88,10 +90,11 @@ jobs:
           done
 
       - name: Sign and Notarize macOS binaries
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Sign and notarize the binaries
+          echo "Certificates available for signing:"
+          security find-identity -v -p codesigning build.keychain
+
+          echo "Attempting to sign and notarize..."
           gon gon.json
 
           # Create archives after notarization
