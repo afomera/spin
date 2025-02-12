@@ -36,34 +36,6 @@ jobs:
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
-      - name: Install gon for notarization
-        run: |
-          brew install mitchellh/gon/gon
-
-      - name: Create gon config
-        run: |
-          cat > gon.json << EOF
-          {
-            "source": ["dist/spin_darwin_amd64/spin", "dist/spin_darwin_arm64/spin"],
-            "bundle_id": "com.afomera.spin",
-            "apple_id": {
-              "username": "${{ secrets.APPLE_ID }}",
-              "password": "${{ secrets.APPLE_ID_PASSWORD }}"
-            },
-            "sign": {
-              "application_identity": "${{ secrets.CERTIFICATE_NAME }}"
-            },
-            "zip": {
-              "output_path": "dist/spin_notarized.zip"
-            },
-            "notarize": {
-              "path": "dist/spin_notarized.zip",
-              "bundle_id": "com.afomera.spin",
-              "staple": true
-            }
-          }
-          EOF
-
       - name: Create entitlements.plist
         run: |
           cat > entitlements.plist << EOF
@@ -98,19 +70,29 @@ jobs:
           done
 
       - name: Sign and Notarize macOS binaries
+        env:
+          CERTIFICATE_NAME: ${{ secrets.CERTIFICATE_NAME }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
         run: |
-          echo "Certificates available for signing:"
-          security find-identity -v -p codesigning build.keychain
+          echo "Signing binaries..."
+          codesign --force -s "$CERTIFICATE_NAME" --timestamp --options runtime -v --entitlements entitlements.plist "dist/spin_darwin_amd64/spin"
+          codesign --force -s "$CERTIFICATE_NAME" --timestamp --options runtime -v --entitlements entitlements.plist "dist/spin_darwin_arm64/spin"
 
-          echo "Attempting to sign and notarize..."
-          gon gon.json
+          echo "Creating zip for notarization..."
+          ditto -c -k --keepParent "dist/spin_darwin_amd64/spin" "dist/spin_darwin_amd64.zip"
+          ditto -c -k --keepParent "dist/spin_darwin_arm64/spin" "dist/spin_darwin_arm64.zip"
 
-          # Extract notarized binaries and create final archives
-          unzip -o dist/spin_notarized.zip -d dist/notarized/
-          cp dist/notarized/spin "dist/spin_darwin_amd64/spin"
-          cp dist/notarized/spin "dist/spin_darwin_arm64/spin"
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "dist/spin_darwin_amd64.zip" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun notarytool submit "dist/spin_darwin_arm64.zip" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
 
-          # Create archives with notarized binaries
+          echo "Stapling notarization..."
+          xcrun stapler staple "dist/spin_darwin_amd64/spin"
+          xcrun stapler staple "dist/spin_darwin_arm64/spin"
+
+          echo "Creating final archives..."
           (cd "dist/spin_darwin_amd64" && tar czf "../spin_darwin_amd64.tar.gz" "spin")
           (cd "dist/spin_darwin_arm64" && tar czf "../spin_darwin_arm64.tar.gz" "spin")
 
