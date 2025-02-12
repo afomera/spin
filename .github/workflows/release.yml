@@ -26,12 +26,29 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          echo "Creating keychain..."
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          echo "Decoding certificate..."
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+
+          echo "Certificate file size:"
+          ls -l certificate.p12
+
+          echo "Importing certificate..."
+          security import certificate.p12 \
+            -k build.keychain \
+            -T /usr/bin/codesign \
+            -v
+
+          echo "Setting key partition list..."
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            build.keychain
 
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
@@ -85,6 +102,9 @@ jobs:
           echo "Signing binaries..."
           for arch in "amd64" "arm64"; do
             echo "Processing darwin_$arch..."
+            
+            echo "Available certificates before signing:"
+            security find-identity -v -p codesigning build.keychain
             
             # Sign the binary with hardened runtime
             codesign --force -s "$CERTIFICATE_NAME" \
