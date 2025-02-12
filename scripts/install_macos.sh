@@ -4,10 +4,10 @@ set -e
 # Get the directory of this script
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Extract the binary from the app bundle
-cp "$DIR/Spin.app/Contents/MacOS/spin" /usr/local/bin/spin
+# Create the destination directory if it doesn't exist
+mkdir -p /usr/local/bin
 
-# Make it executable
-chmod +x /usr/local/bin/spin
+# Extract the binary from the app bundle using ditto to preserve code signing
+ditto "$DIR/Spin.app/Contents/MacOS/spin" /usr/local/bin/spin
 
 echo "Spin CLI installed successfully! Run 'spin' to get started."
