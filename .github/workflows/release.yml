@@ -57,6 +57,29 @@ jobs:
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
+      - name: Create Info.plist
+        run: |
+          cat > Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.afomera.spin</string>
+              <key>CFBundleName</key>
+              <string>spin</string>
+              <key>CFBundleExecutable</key>
+              <string>spin</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+          </dict>
+          </plist>
+          EOF
+
       - name: Create entitlements.plist
         run: |
           cat > entitlements.plist << EOF
@@ -110,19 +133,30 @@ jobs:
             echo "Available certificates before signing:"
             security find-identity -v -p codesigning build.keychain
             
-            # Sign the binary with hardened runtime
+            # Create app bundle structure
+            mkdir -p "dist/Spin.app/Contents/MacOS"
+            cp Info.plist "dist/Spin.app/Contents/"
+            cp "dist/spin_darwin_$arch/spin" "dist/Spin.app/Contents/MacOS/"
+            
+            # Sign the binary and app bundle
             codesign --force -s "$CERTIFICATE_NAME" \
               --timestamp \
               --options runtime \
               --entitlements entitlements.plist \
               --prefix com.afomera. \
-              -v "dist/spin_darwin_$arch/spin"
+              -v "dist/Spin.app/Contents/MacOS/spin"
+            
+            codesign --force -s "$CERTIFICATE_NAME" \
+              --timestamp \
+              --options runtime \
+              --entitlements entitlements.plist \
+              -v "dist/Spin.app"
             
             # Verify signing
-            codesign -vv --deep --strict "dist/spin_darwin_$arch/spin"
+            codesign -vv --deep --strict "dist/Spin.app"
             
             # Create zip for notarization
-            ditto -c -k --keepParent "dist/spin_darwin_$arch" "dist/spin_darwin_$arch.zip"
+            ditto -c -k --keepParent "dist/Spin.app" "dist/spin_darwin_$arch.zip"
             
             echo "Notarizing darwin_$arch..."
             submission_id=$(xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
@@ -153,21 +187,10 @@ jobs:
                 attempt=1
                 while [ $attempt -le $max_attempts ]; do
                   echo "Attempting to staple (attempt $attempt of $max_attempts)..."
-                  
-                  # Create a fresh copy of the binary
-                  rm -rf "dist/temp_$arch"
-                  mkdir -p "dist/temp_$arch"
-                  cp "dist/spin_darwin_$arch/spin" "dist/temp_$arch/"
-                  
-                  # Create a new zip for stapling
-                  ditto -c -k --keepParent "dist/temp_$arch" "dist/temp_$arch.zip"
-                  
-                  if xcrun stapler staple "dist/temp_$arch.zip"; then
+                  if xcrun stapler staple "dist/Spin.app"; then
                     echo "Stapling succeeded!"
-                    # Extract the stapled binary
-                    ditto -x -k "dist/temp_$arch.zip" "dist/temp_extract_$arch"
-                    cp "dist/temp_extract_$arch/temp_$arch/spin" "dist/spin_darwin_$arch/spin"
-                    rm -rf "dist/temp_$arch" "dist/temp_extract_$arch"
+                    # Copy the stapled binary back
+                    cp "dist/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
                     break
                   else
                     if [ $attempt -eq $max_attempts ]; then
@@ -188,6 +211,9 @@ jobs:
               echo "Failed to get submission ID"
               exit 1
             fi
+            
+            # Clean up
+            rm -rf "dist/Spin.app"
           done
 
           echo "Creating final archives..."
