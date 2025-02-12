@@ -212,7 +212,7 @@ jobs:
             fi
             
             # Create install script
-            cat > "dist/spin_darwin_$arch/install.sh" << 'EOF'
+            cat > "dist/spin_darwin_$arch/install.sh" << "EOSCRIPT"
 #!/bin/bash
 set -e
 
@@ -226,7 +226,7 @@ cp "$DIR/Spin.app/Contents/MacOS/spin" /usr/local/bin/spin
 chmod +x /usr/local/bin/spin
 
 echo "Spin CLI installed successfully! Run 'spin' to get started."
-EOF
+EOSCRIPT
             chmod +x "dist/spin_darwin_$arch/install.sh"
             
             # Clean up notarization zip
