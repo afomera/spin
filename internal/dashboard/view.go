@@ -20,7 +20,7 @@ func (m *Model) View() string {
 	header := lipgloss.JoinHorizontal(
 		lipgloss.Center,
 		TitleStyle.Render("Spin Dashboard"),
-		lipgloss.NewStyle().PaddingLeft(4).Render(m.ProjectName),
+		ProjectNameStyle.Render(m.ProjectName),
 	)
 
 	// Calculate widths
@@ -28,13 +28,26 @@ func (m *Model) View() string {
 	detailsWidth := m.Width - processWidth - 4 // Account for margins and borders
 
 	// Left panel with processes
-	leftPanel := ProcessBoxStyle.Render(m.ProcessView.View())
+	leftPanel := lipgloss.JoinVertical(
+		lipgloss.Left,
+		HeaderStyle.Render("Processes"),
+		ProcessBoxStyle.Render(m.ProcessView.View()),
+	)
 
 	// Right panel with logs/details
-	rightPanel := LogBoxStyle.
-		Copy().
-		Width(detailsWidth).
-		Render(m.DetailsView.View())
+	rightPanel := lipgloss.JoinVertical(
+		lipgloss.Left,
+		HeaderStyle.Render(func() string {
+			if m.ViewMode == DetailsMode {
+				return "Details"
+			}
+			return "Logs"
+		}()),
+		LogBoxStyle.
+			Copy().
+			Width(detailsWidth).
+			Render(m.DetailsView.View()),
+	)
 
 	// Main content area (left and right panels)
 	mainContent := lipgloss.JoinHorizontal(
@@ -46,16 +59,19 @@ func (m *Model) View() string {
 	// Command output panel (bottom)
 	var commandPanel string
 	if len(m.CommandOutput) > 0 {
-		commandPanel = OutputStyle.
-			Copy().
-			Width(m.Width - 4). // Full width minus margins
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Left,
-					HeaderStyle.Render("Command Output"),
-					m.CommandOutput,
+		commandPanel = lipgloss.JoinVertical(
+			lipgloss.Left,
+			OutputStyle.
+				Copy().
+				Width(m.Width-4). // Full width minus margins
+				Render(
+					lipgloss.JoinVertical(
+						lipgloss.Left,
+						HeaderStyle.Render("Command Output"),
+						m.CommandOutput,
+					),
 				),
-			)
+		)
 	}
 
 	// Footer with status and help
