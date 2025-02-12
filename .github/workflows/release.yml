@@ -145,8 +145,28 @@ jobs:
               
               # Check if notarization succeeded using jq
               if [ "$(jq -r .status notarization.log)" = "Accepted" ]; then
-                echo "Notarization succeeded, stapling..."
-                xcrun stapler staple "dist/spin_darwin_$arch/spin"
+                echo "Notarization succeeded, waiting for processing..."
+                # Wait for notarization to be fully processed
+                sleep 30
+                
+                # Try stapling up to 3 times
+                max_attempts=3
+                attempt=1
+                while [ $attempt -le $max_attempts ]; do
+                  echo "Attempting to staple (attempt $attempt of $max_attempts)..."
+                  if xcrun stapler staple "dist/spin_darwin_$arch/spin"; then
+                    echo "Stapling succeeded!"
+                    break
+                  else
+                    if [ $attempt -eq $max_attempts ]; then
+                      echo "All stapling attempts failed"
+                      exit 1
+                    fi
+                    echo "Stapling failed, waiting before retry..."
+                    sleep 30
+                    attempt=$((attempt + 1))
+                  fi
+                done
               else
                 echo "Notarization failed"
                 cat notarization.log
