@@ -52,6 +52,14 @@ jobs:
             },
             "sign": {
               "application_identity": "${{ secrets.CERTIFICATE_NAME }}"
+            },
+            "zip": {
+              "output_path": "dist/spin_notarized.zip"
+            },
+            "notarize": {
+              "path": "dist/spin_notarized.zip",
+              "bundle_id": "com.afomera.spin",
+              "staple": true
             }
           }
           EOF
@@ -97,7 +105,12 @@ jobs:
           echo "Attempting to sign and notarize..."
           gon gon.json
 
-          # Create archives after notarization
+          # Extract notarized binaries and create final archives
+          unzip -o dist/spin_notarized.zip -d dist/notarized/
+          cp dist/notarized/spin "dist/spin_darwin_amd64/spin"
+          cp dist/notarized/spin "dist/spin_darwin_arm64/spin"
+
+          # Create archives with notarized binaries
           (cd "dist/spin_darwin_amd64" && tar czf "../spin_darwin_amd64.tar.gz" "spin")
           (cd "dist/spin_darwin_arm64" && tar czf "../spin_darwin_arm64.tar.gz" "spin")
 
