@@ -107,18 +107,33 @@ jobs:
           for arch in "amd64" "arm64"; do
             echo "Processing darwin_$arch..."
             
+            # First sign the binary itself
+            codesign --force -s "$CERTIFICATE_NAME" \
+              --timestamp \
+              --options runtime \
+              --entitlements entitlements.plist \
+              -v "dist/spin_darwin_$arch/spin"
+            
             # Create a clean app structure
             mkdir -p "dist/Spin.app/Contents/MacOS"
             cp Info.plist "dist/Spin.app/Contents/"
             cp "dist/spin_darwin_$arch/spin" "dist/Spin.app/Contents/MacOS/"
             
-            # Sign with hardened runtime
+            # Sign the app bundle
             codesign --force -s "$CERTIFICATE_NAME" \
               --timestamp \
               --options runtime \
               --entitlements entitlements.plist \
-              -v --deep \
-              "dist/Spin.app"
+              -v "dist/Spin.app/Contents/MacOS/spin"
+            
+            codesign --force -s "$CERTIFICATE_NAME" \
+              --timestamp \
+              --options runtime \
+              --entitlements entitlements.plist \
+              -v "dist/Spin.app"
+            
+            # Verify signing
+            codesign -vv --deep --strict "dist/Spin.app"
             
             # Create zip for notarization
             ditto -c -k --keepParent "dist/Spin.app" "dist/spin_darwin_$arch.zip"
@@ -144,6 +159,19 @@ jobs:
               
               echo "Notarization log contents:"
               cat notarization.log
+              
+              # Check if notarization succeeded
+              if grep -q '"status":"Accepted"' notarization.log; then
+                echo "Notarization succeeded, stapling..."
+                # Extract and staple
+                unzip -o "dist/spin_darwin_$arch.zip" -d "dist/temp_$arch"
+                xcrun stapler staple "dist/temp_$arch/Spin.app"
+                cp "dist/temp_$arch/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
+                rm -rf "dist/temp_$arch"
+              else
+                echo "Notarization failed"
+                exit 1
+              fi
             else
               echo "Failed to get submission ID"
               exit 1
@@ -152,10 +180,7 @@ jobs:
 
           echo "Creating final archives..."
           for arch in "amd64" "arm64"; do
-            unzip -o "dist/spin_darwin_$arch.zip" -d "dist/temp_$arch"
-            cp "dist/temp_$arch/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
             (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" "spin")
-            rm -rf "dist/temp_$arch"
           done
 
       - name: Create other platform archives
