@@ -141,11 +141,12 @@ jobs:
               cat notarization.log
               
               # Check if notarization succeeded
-              if grep -q '"status":"Accepted"' notarization.log; then
+              if grep -q '"status":"Accepted"\|"statusSummary":"Ready for distribution"' notarization.log; then
                 echo "Notarization succeeded, stapling..."
                 xcrun stapler staple "dist/spin_darwin_$arch/spin"
               else
                 echo "Notarization failed"
+                cat notarization.log
                 exit 1
               fi
             else
