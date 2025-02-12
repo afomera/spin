@@ -125,24 +125,29 @@ jobs:
             
             # Clean up app structure
             rm -rf "dist/Spin.app"
-          done
-
-          echo "Submitting for notarization..."
-          for arch in "amd64" "arm64"; do
+            
             echo "Notarizing darwin_$arch..."
-            xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
+            submission_id=$(xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
               --apple-id "$APPLE_ID" \
               --password "$APPLE_ID_PASSWORD" \
               --team-id "$APPLE_TEAM_ID" \
               --wait \
-              --verbose
+              --verbose 2>&1 | grep "id:" | head -n1 | awk '{print $2}')
             
-            # Get notarization info
-            xcrun notarytool log --verbose \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_ID_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              $(xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" | grep "spin_darwin_$arch.zip" | head -n1 | awk '{print $1}')
+            if [ -n "$submission_id" ]; then
+              echo "Getting notarization log for $submission_id..."
+              xcrun notarytool log \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_ID_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                "$submission_id" notarization.log
+              
+              echo "Notarization log contents:"
+              cat notarization.log
+            else
+              echo "Failed to get submission ID"
+              exit 1
+            fi
           done
 
           echo "Creating final archives..."
