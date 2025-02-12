@@ -20,6 +20,9 @@ jobs:
           go-version: "1.21"
           cache: true
 
+      - name: Install jq
+        run: brew install jq
+
       - name: Import Code-Signing Certificates
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -140,8 +143,8 @@ jobs:
               echo "Notarization log contents:"
               cat notarization.log
               
-              # Check if notarization succeeded
-              if grep -q '"status":"Accepted"\|"statusSummary":"Ready for distribution"' notarization.log; then
+              # Check if notarization succeeded using jq
+              if [ "$(jq -r .status notarization.log)" = "Accepted" ]; then
                 echo "Notarization succeeded, stapling..."
                 xcrun stapler staple "dist/spin_darwin_$arch/spin"
               else
