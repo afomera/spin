@@ -36,29 +36,6 @@ jobs:
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
-      - name: Create Info.plist
-        run: |
-          cat > Info.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.afomera.spin</string>
-              <key>CFBundleName</key>
-              <string>spin</string>
-              <key>CFBundleExecutable</key>
-              <string>spin</string>
-              <key>CFBundleVersion</key>
-              <string>1.0.0</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0.0</string>
-          </dict>
-          </plist>
-          EOF
-
       - name: Create entitlements.plist
         run: |
           cat > entitlements.plist << EOF
@@ -75,6 +52,8 @@ jobs:
               <key>com.apple.security.get-task-allow</key>
               <true/>
               <key>com.apple.security.cs.debugger</key>
+              <true/>
+              <key>com.apple.security.cs.allow-dyld-environment-variables</key>
               <true/>
           </dict>
           </plist>
@@ -107,39 +86,19 @@ jobs:
           for arch in "amd64" "arm64"; do
             echo "Processing darwin_$arch..."
             
-            # First sign the binary itself
+            # Sign the binary with hardened runtime
             codesign --force -s "$CERTIFICATE_NAME" \
               --timestamp \
               --options runtime \
               --entitlements entitlements.plist \
+              --prefix com.afomera. \
               -v "dist/spin_darwin_$arch/spin"
             
-            # Create a clean app structure
-            mkdir -p "dist/Spin.app/Contents/MacOS"
-            cp Info.plist "dist/Spin.app/Contents/"
-            cp "dist/spin_darwin_$arch/spin" "dist/Spin.app/Contents/MacOS/"
-            
-            # Sign the app bundle
-            codesign --force -s "$CERTIFICATE_NAME" \
-              --timestamp \
-              --options runtime \
-              --entitlements entitlements.plist \
-              -v "dist/Spin.app/Contents/MacOS/spin"
-            
-            codesign --force -s "$CERTIFICATE_NAME" \
-              --timestamp \
-              --options runtime \
-              --entitlements entitlements.plist \
-              -v "dist/Spin.app"
-            
             # Verify signing
-            codesign -vv --deep --strict "dist/Spin.app"
+            codesign -vv --deep --strict "dist/spin_darwin_$arch/spin"
             
             # Create zip for notarization
-            ditto -c -k --keepParent "dist/Spin.app" "dist/spin_darwin_$arch.zip"
-            
-            # Clean up app structure
-            rm -rf "dist/Spin.app"
+            ditto -c -k --keepParent "dist/spin_darwin_$arch" "dist/spin_darwin_$arch.zip"
             
             echo "Notarizing darwin_$arch..."
             submission_id=$(xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
@@ -163,11 +122,7 @@ jobs:
               # Check if notarization succeeded
               if grep -q '"status":"Accepted"' notarization.log; then
                 echo "Notarization succeeded, stapling..."
-                # Extract and staple
-                unzip -o "dist/spin_darwin_$arch.zip" -d "dist/temp_$arch"
-                xcrun stapler staple "dist/temp_$arch/Spin.app"
-                cp "dist/temp_$arch/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
-                rm -rf "dist/temp_$arch"
+                xcrun stapler staple "dist/spin_darwin_$arch/spin"
               else
                 echo "Notarization failed"
                 exit 1
