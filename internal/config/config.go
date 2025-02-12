@@ -11,14 +11,15 @@ import (
 
 // Config represents the structure of spin.config.json
 type Config struct {
-	Name         string            `json:"name"`
-	Version      string            `json:"version"`
-	Type         string            `json:"type"` // "rails", "react", etc.
-	Repository   Repository        `json:"repository"`
-	Dependencies Dependencies      `json:"dependencies"`
-	Scripts      Scripts           `json:"scripts"`
-	Env          map[string]EnvMap `json:"env"`
-	Rails        *RailsConfig      `json:"rails,omitempty"`
+	Name         string                          `json:"name"`
+	Version      string                          `json:"version"`
+	Type         string                          `json:"type"` // "rails", "react", etc.
+	Repository   Repository                      `json:"repository"`
+	Dependencies Dependencies                    `json:"dependencies"`
+	Scripts      Scripts                         `json:"scripts"`
+	Env          map[string]EnvMap               `json:"env"`
+	Rails        *RailsConfig                    `json:"rails,omitempty"`
+	Services     map[string]*DockerServiceConfig `json:"services,omitempty"`
 }
 
 // RailsConfig holds Rails-specific configuration
@@ -135,6 +136,23 @@ func DetectProjectType(path string) (*Config, error) {
 			Env: map[string]EnvMap{
 				"development": {},
 			},
+			Services: make(map[string]*DockerServiceConfig),
+		}
+
+		// Configure Docker services based on detected requirements
+		if cfg.Rails.Database.Type != "" {
+			if dockerCfg := GetDefaultDockerConfig(cfg.Rails.Database.Type); dockerCfg != nil {
+				cfg.Services[cfg.Rails.Database.Type] = dockerCfg
+				cfg.Dependencies.Services = append(cfg.Dependencies.Services, cfg.Rails.Database.Type)
+			}
+		}
+
+		// Add Redis if needed
+		if cfg.Rails.Services.Redis || cfg.Rails.Services.Sidekiq {
+			if redisCfg := GetDefaultDockerConfig("redis"); redisCfg != nil {
+				cfg.Services["redis"] = redisCfg
+				cfg.Dependencies.Services = append(cfg.Dependencies.Services, "redis")
+			}
 		}
 
 		// Add database to services

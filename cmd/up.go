@@ -10,6 +10,7 @@ import (
 
 	"github.com/afomera/spin/internal/config"
 	"github.com/afomera/spin/internal/process"
+	"github.com/afomera/spin/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -37,6 +38,30 @@ Example:
 		if err != nil {
 			fmt.Printf("Error loading configuration: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Initialize service manager and required services
+		svcManager := service.NewServiceManager()
+		if len(cfg.Dependencies.Services) > 0 {
+			fmt.Println("Checking required services...")
+			for _, serviceName := range cfg.Dependencies.Services {
+				svc, err := service.CreateService(serviceName)
+				if err != nil {
+					fmt.Printf("Error creating service %s: %v\n", serviceName, err)
+					os.Exit(1)
+				}
+				svcManager.RegisterService(svc)
+
+				if !svc.IsRunning() {
+					fmt.Printf("Starting %s...\n", serviceName)
+					if err := svcManager.StartService(serviceName); err != nil {
+						fmt.Printf("Error starting service %s: %v\n", serviceName, err)
+						os.Exit(1)
+					}
+				} else {
+					fmt.Printf("Service %s is already running\n", serviceName)
+				}
+			}
 		}
 
 		// Check if start script is defined
@@ -164,6 +189,12 @@ Example:
 
 		// Wait for all processes to complete
 		processManager.WaitForAll()
+
+		// Stop services if they were started by us
+		if len(cfg.Dependencies.Services) > 0 {
+			fmt.Println("Stopping services...")
+			svcManager.StopAll()
+		}
 	},
 }
 

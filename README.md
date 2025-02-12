@@ -93,6 +93,45 @@ Subcommands:
 - `show`: Display current configuration
 - `set-org [organization]`: Set default GitHub organization for project setup
 
+### spin services
+
+Manage Docker-based services for your application.
+
+```bash
+# List all services and their status
+spin services list           # Show all services with status and health
+spin services start redis    # Start a specific service
+spin services stop redis     # Stop a specific service
+spin services restart redis  # Restart a service
+spin services logs redis     # View service logs
+spin services logs redis -f  # Stream logs continuously
+spin services logs redis -n 100  # Show last 100 lines
+
+# View detailed service information
+spin services info redis     # Show detailed info including health and uptime
+
+# Service configuration
+spin services add           # Add a new service interactively
+spin services remove redis  # Remove a service
+spin services edit redis    # Edit service configuration
+spin services export redis  # Export service configuration
+spin services import redis-config.json  # Import service configuration
+
+# Service maintenance
+spin services cleanup volumes  # Clean up unused volumes
+spin services update redis    # Update service to latest version
+spin services update redis --version 7.0  # Update to specific version
+spin services stats          # View resource usage (CPU, Memory)
+```
+
+Flags:
+
+- `--follow, -f`: Follow log output
+- `--tail, -n`: Number of lines to show from logs
+- `--remove-volumes`: Remove associated volumes when removing service
+- `--version`: Specify version when updating service
+- `--name`: Service name for import (defaults to filename)
+
 ## Configuration
 
 ### spin.config.json
@@ -133,7 +172,35 @@ The main configuration file for your application. Here's an example of a Rails a
     "rails": {
       "version": "8.0.1"
     },
-    "services": {}
+    "services": {
+      "postgres": {
+        "type": "docker",
+        "image": "postgres:15",
+        "port": 5432,
+        "environment": {
+          "POSTGRES_USER": "postgres",
+          "POSTGRES_PASSWORD": "postgres"
+        },
+        "volumes": {
+          "data": "/var/lib/postgresql/data"
+        },
+        "healthCheck": {
+          "command": ["pg_isready", "-U", "postgres"],
+          "interval": "10s",
+          "timeout": "5s",
+          "retries": 3,
+          "startPeriod": "10s"
+        }
+      },
+      "redis": {
+        "type": "docker",
+        "image": "redis:7",
+        "port": 6379,
+        "volumes": {
+          "data": "/data"
+        }
+      }
+    }
   }
 }
 ```
