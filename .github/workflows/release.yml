@@ -40,8 +40,9 @@ jobs:
           echo "Importing certificate..."
           security import certificate.p12 \
             -k build.keychain \
-            -T /usr/bin/codesign \
-            -v
+            -f pkcs12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
 
           echo "Setting key partition list..."
           security set-key-partition-list \
