@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/afomera/spin/internal/config"
+	lg "github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/process"
 	"github.com/afomera/spin/internal/service"
 	"github.com/spf13/cobra"
@@ -26,19 +27,19 @@ Example:
 			// Initialize service manager
 			svcManager := service.NewServiceManager()
 			if len(cfg.Dependencies.Services) > 0 {
-				fmt.Println("Stopping services...")
+				fmt.Printf("%sStopping services...%s\n", lg.Blue, lg.Reset)
 				for _, serviceName := range cfg.Dependencies.Services {
 					svc, err := service.CreateService(serviceName)
 					if err != nil {
-						fmt.Printf("Warning: Failed to create service %s: %v\n", serviceName, err)
+						fmt.Printf("%sWarning: Failed to create service %s: %v%s\n", lg.Yellow, serviceName, err, lg.Reset)
 						continue
 					}
 					svcManager.RegisterService(svc)
 
 					if svc.IsRunning() {
-						fmt.Printf("Stopping %s...\n", serviceName)
+						fmt.Printf("Stopping %s%s%s...\n", lg.Cyan, serviceName, lg.Reset)
 						if err := svcManager.StopService(serviceName); err != nil {
-							fmt.Printf("Warning: Failed to stop service %s: %v\n", serviceName, err)
+							fmt.Printf("%sWarning: Failed to stop service %s: %v%s\n", lg.Yellow, serviceName, err, lg.Reset)
 						}
 					}
 				}
@@ -51,19 +52,19 @@ Example:
 		// Get all processes
 		processes := manager.ListProcesses()
 		if len(processes) == 0 {
-			fmt.Println("No running processes")
+			fmt.Printf("%sNo running processes%s\n", lg.Yellow, lg.Reset)
 			return
 		}
 
-		fmt.Println("Stopping all processes...")
+		fmt.Printf("%sStopping all processes...%s\n", lg.Blue, lg.Reset)
 		for _, p := range processes {
-			fmt.Printf("Stopping %s...\n", p.Name)
+			fmt.Printf("Stopping %s%s%s...\n", lg.Cyan, p.Name, lg.Reset)
 			if err := manager.StopProcess(p.Name); err != nil {
-				fmt.Printf("Warning: Failed to stop %s: %v\n", p.Name, err)
+				fmt.Printf("%sWarning: Failed to stop %s: %v%s\n", lg.Yellow, p.Name, err, lg.Reset)
 			}
 		}
 
-		fmt.Println("All processes stopped")
+		fmt.Printf("%sAll processes stopped%s\n", lg.Green, lg.Reset)
 	},
 }
 

@@ -5,9 +5,25 @@ import (
 	"os"
 	"text/tabwriter"
 
+	lg "github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
 )
+
+// colorizeStatus returns a colored string representation of a process status
+func colorizeStatus(status process.ProcessStatus) string {
+	statusStr := string(status)
+	switch status {
+	case process.StatusRunning:
+		return fmt.Sprintf("%s%s%s", lg.Green, statusStr, lg.Reset)
+	case process.StatusStopped:
+		return fmt.Sprintf("%s%s%s", lg.Red, statusStr, lg.Reset)
+	case process.StatusError:
+		return fmt.Sprintf("%s%s%s", lg.Red, statusStr, lg.Reset)
+	default:
+		return fmt.Sprintf("%s%s%s", lg.Yellow, statusStr, lg.Reset)
+	}
+}
 
 // psCmd represents the ps command
 var psCmd = &cobra.Command{
@@ -21,14 +37,19 @@ Example:
 	Run: func(cmd *cobra.Command, args []string) {
 		// Create a new tabwriter for aligned output
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATUS\tPID\tOUTPUT FILE\tINTERACTIVE\tERROR")
+
+		// Print headers with cyan color
+		fmt.Fprintf(w, "%sNAME\tSTATUS\tPID\tOUTPUT FILE\tINTERACTIVE\tERROR%s\n",
+			lg.Cyan,
+			lg.Reset,
+		)
 
 		// Get all processes from the manager
 		manager := process.GetManager(nil)
 		processes := manager.ListProcesses()
 
 		if len(processes) == 0 {
-			fmt.Fprintln(w, "No running processes")
+			fmt.Fprintf(w, "%sNo running processes%s\n", lg.Yellow, lg.Reset)
 		} else {
 			for _, p := range processes {
 				interactive := "no"
@@ -38,7 +59,7 @@ Example:
 
 				errStr := ""
 				if p.Error != nil {
-					errStr = p.Error.Error()
+					errStr = fmt.Sprintf("%s%s%s", lg.Red, p.Error.Error(), lg.Reset)
 				}
 
 				pid := 0
@@ -48,7 +69,7 @@ Example:
 
 				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
 					p.Name,
-					p.Status,
+					colorizeStatus(p.Status),
 					pid,
 					p.OutputFile,
 					interactive,
@@ -59,11 +80,11 @@ Example:
 
 		w.Flush()
 
-		// Print help text
-		fmt.Println("\nTo view process output:")
-		fmt.Println("  spin logs <process-name>")
-		fmt.Println("\nTo debug a process:")
-		fmt.Println("  spin debug <process-name>")
+		// Print help text with blue color
+		fmt.Printf("\n%sTo view process output:%s\n", lg.Blue, lg.Reset)
+		fmt.Printf("  spin logs <process-name>\n")
+		fmt.Printf("\n%sTo debug a process:%s\n", lg.Blue, lg.Reset)
+		fmt.Printf("  spin debug <process-name>\n")
 	},
 }
 

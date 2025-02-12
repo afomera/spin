@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/service/docker"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/docker/docker/api/types"
@@ -56,11 +57,14 @@ var servicesListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tTYPE\tSTATUS\tHEALTH\tPORT")
+		fmt.Fprintf(w, "%sNAME\tTYPE\tSTATUS\tHEALTH\tPORT%s\n",
+			logger.Cyan,
+			logger.Reset,
+		)
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -81,7 +85,37 @@ var servicesListCmd = &cobra.Command{
 				}
 			}
 
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n", name, service.Type, status, health, service.Port)
+			// Colorize status
+			coloredStatus := status
+			if status == "running" {
+				coloredStatus = fmt.Sprintf("%s%s%s", logger.Green, status, logger.Reset)
+			} else {
+				coloredStatus = fmt.Sprintf("%s%s%s", logger.Red, status, logger.Reset)
+			}
+
+			// Colorize health
+			coloredHealth := health
+			switch health {
+			case "healthy":
+				coloredHealth = fmt.Sprintf("%s%s%s", logger.Green, health, logger.Reset)
+			case "unhealthy":
+				coloredHealth = fmt.Sprintf("%s%s%s", logger.Red, health, logger.Reset)
+			case "-":
+				coloredHealth = fmt.Sprintf("%s%s%s", logger.Yellow, health, logger.Reset)
+			default:
+				coloredHealth = fmt.Sprintf("%s%s%s", logger.Yellow, health, logger.Reset)
+			}
+
+			// Colorize name
+			coloredName := fmt.Sprintf("%s%s%s", logger.Cyan, name, logger.Reset)
+
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\n",
+				coloredName,
+				service.Type,
+				coloredStatus,
+				coloredHealth,
+				service.Port,
+			)
 		}
 		w.Flush()
 	},
@@ -94,29 +128,29 @@ var servicesStartCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Starting %s service...\n", serviceName)
+		fmt.Printf("%sStarting %s%s%s service...%s\n", logger.Blue, logger.Cyan, serviceName, logger.Blue, logger.Reset)
 		if err := manager.StartService(serviceName, service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError starting service: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
-		fmt.Printf("Service %s started successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s started successfully%s\n", logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -127,17 +161,17 @@ var servicesStopCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
-		fmt.Printf("Stopping %s service...\n", serviceName)
+		fmt.Printf("%sStopping %s%s%s service...%s\n", logger.Blue, logger.Cyan, serviceName, logger.Blue, logger.Reset)
 		if err := manager.StopService(serviceName); err != nil {
-			fmt.Fprintf(os.Stderr, "Error stopping service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError stopping service: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
-		fmt.Printf("Service %s stopped successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s stopped successfully%s\n", logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -148,7 +182,7 @@ var servicesLogsCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -159,14 +193,14 @@ var servicesLogsCmd = &cobra.Command{
 		if follow {
 			// Stream logs continuously
 			if err := manager.StreamServiceLogs(serviceName, tail); err != nil {
-				fmt.Fprintf(os.Stderr, "Error streaming logs: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError streaming logs: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 		} else {
 			// Get logs once
 			logs, err := manager.GetServiceLogs(serviceName, tail)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting logs: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError getting logs: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 			fmt.Print(logs)
@@ -458,21 +492,23 @@ Example: spin services cleanup volumes`,
 	Run: func(cmd *cobra.Command, args []string) {
 		resourceType := args[0]
 		if resourceType != "volumes" {
-			fmt.Fprintf(os.Stderr, "Unsupported resource type: %s\nCurrently only 'volumes' is supported\n", resourceType)
+			fmt.Fprintf(os.Stderr, "%sUnsupported resource type: %s\nCurrently only 'volumes' is supported%s\n",
+				logger.Red, resourceType, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Println("Cleaning up unused volumes...")
+		fmt.Printf("%sCleaning up unused volumes...%s\n", logger.Blue, logger.Reset)
 		if err := manager.CleanupVolumes(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error cleaning up volumes: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError cleaning up volumes: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
+		fmt.Printf("%sVolumes cleaned up successfully%s\n", logger.Green, logger.Reset)
 	},
 }
 
@@ -483,38 +519,38 @@ var servicesRestartCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Restarting %s service...\n", serviceName)
+		fmt.Printf("%sRestarting %s%s%s service...%s\n", logger.Blue, logger.Cyan, serviceName, logger.Blue, logger.Reset)
 
 		// Stop the service
 		if err := manager.StopService(serviceName); err != nil {
-			fmt.Fprintf(os.Stderr, "Error stopping service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError stopping service: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		// Start the service
 		if err := manager.StartService(serviceName, service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting service: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError starting service: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Service %s restarted successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s restarted successfully%s\n", logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -525,32 +561,34 @@ var servicesInfoCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		containerID, err := manager.FindContainer(serviceName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Service %s not found or not running\nSuggestion: Run 'spin services start %s' to start the service\n", serviceName, serviceName)
+			fmt.Fprintf(os.Stderr, "%sError: Service %s%s%s not found or not running\nSuggestion: Run 'spin services start %s' to start the service%s\n",
+				logger.Red, logger.Cyan, serviceName, logger.Red, serviceName, logger.Reset)
 			os.Exit(1)
 		}
 
 		container, err := manager.Client().ContainerInspect(context.Background(), containerID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error inspecting service: %v\nSuggestion: Check if Docker daemon is running\n", err)
+			fmt.Fprintf(os.Stderr, "%sError inspecting service: %v\nSuggestion: Check if Docker daemon is running%s\n",
+				logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -571,24 +609,45 @@ var servicesInfoCmd = &cobra.Command{
 			}
 		}
 
+		// Colorize status
+		coloredStatus := status
+		if status == "running" {
+			coloredStatus = fmt.Sprintf("%s%s%s", logger.Green, status, logger.Reset)
+		} else {
+			coloredStatus = fmt.Sprintf("%s%s%s", logger.Red, status, logger.Reset)
+		}
+
+		// Colorize health
+		coloredHealth := health
+		switch health {
+		case "healthy":
+			coloredHealth = fmt.Sprintf("%s%s%s", logger.Green, health, logger.Reset)
+		case "unhealthy":
+			coloredHealth = fmt.Sprintf("%s%s%s", logger.Red, health, logger.Reset)
+		case "-":
+			coloredHealth = fmt.Sprintf("%s%s%s", logger.Yellow, health, logger.Reset)
+		default:
+			coloredHealth = fmt.Sprintf("%s%s%s", logger.Yellow, health, logger.Reset)
+		}
+
 		// Display service information
-		fmt.Printf("Service: %s\n", serviceName)
-		fmt.Printf("Type: %s\n", service.Type)
-		fmt.Printf("Image: %s\n", service.Image)
-		fmt.Printf("Status: %s\n", status)
-		fmt.Printf("Health: %s\n", health)
-		fmt.Printf("Uptime: %s\n", uptime)
-		fmt.Printf("Port: %d -> %d\n", service.Port, service.Port)
+		fmt.Printf("%sService:%s %s%s%s\n", logger.Cyan, logger.Reset, logger.Blue, serviceName, logger.Reset)
+		fmt.Printf("%sType:%s %s\n", logger.Cyan, logger.Reset, service.Type)
+		fmt.Printf("%sImage:%s %s\n", logger.Cyan, logger.Reset, service.Image)
+		fmt.Printf("%sStatus:%s %s\n", logger.Cyan, logger.Reset, coloredStatus)
+		fmt.Printf("%sHealth:%s %s\n", logger.Cyan, logger.Reset, coloredHealth)
+		fmt.Printf("%sUptime:%s %s\n", logger.Cyan, logger.Reset, uptime)
+		fmt.Printf("%sPort:%s %d -> %d\n", logger.Cyan, logger.Reset, service.Port, service.Port)
 
 		if len(service.Volumes) > 0 {
-			fmt.Println("Volumes:")
+			fmt.Printf("\n%sVolumes:%s\n", logger.Cyan, logger.Reset)
 			for name, path := range service.Volumes {
-				fmt.Printf("  - %s: %s\n", name, path)
+				fmt.Printf("  - %s%s%s: %s\n", logger.Blue, name, logger.Reset, path)
 			}
 		}
 
 		if len(service.Environment) > 0 {
-			fmt.Println("Environment:")
+			fmt.Printf("\n%sEnvironment:%s\n", logger.Cyan, logger.Reset)
 			for key, value := range service.Environment {
 				// Mask sensitive values
 				if strings.Contains(strings.ToLower(key), "password") ||
@@ -596,17 +655,17 @@ var servicesInfoCmd = &cobra.Command{
 					strings.Contains(strings.ToLower(key), "token") {
 					value = "****"
 				}
-				fmt.Printf("  - %s=%s\n", key, value)
+				fmt.Printf("  - %s%s%s=%s\n", logger.Blue, key, logger.Reset, value)
 			}
 		}
 
 		if service.HealthCheck != nil {
-			fmt.Println("Health Check:")
-			fmt.Printf("  Command: %v\n", service.HealthCheck.Command)
-			fmt.Printf("  Interval: %s\n", service.HealthCheck.Interval)
-			fmt.Printf("  Timeout: %s\n", service.HealthCheck.Timeout)
-			fmt.Printf("  Retries: %d\n", service.HealthCheck.Retries)
-			fmt.Printf("  Start Period: %s\n", service.HealthCheck.StartPeriod)
+			fmt.Printf("\n%sHealth Check:%s\n", logger.Cyan, logger.Reset)
+			fmt.Printf("  %sCommand:%s %v\n", logger.Blue, logger.Reset, service.HealthCheck.Command)
+			fmt.Printf("  %sInterval:%s %s\n", logger.Blue, logger.Reset, service.HealthCheck.Interval)
+			fmt.Printf("  %sTimeout:%s %s\n", logger.Blue, logger.Reset, service.HealthCheck.Timeout)
+			fmt.Printf("  %sRetries:%s %d\n", logger.Blue, logger.Reset, service.HealthCheck.Retries)
+			fmt.Printf("  %sStart Period:%s %s\n", logger.Blue, logger.Reset, service.HealthCheck.StartPeriod)
 		}
 	},
 }
@@ -618,21 +677,21 @@ var servicesEditCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
 		// Create a temporary file with the service configuration
 		tmpfile, err := os.CreateTemp("", "spin-*.json")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating temp file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating temp file: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 		defer os.Remove(tmpfile.Name())
@@ -641,7 +700,7 @@ var servicesEditCmd = &cobra.Command{
 		encoder := json.NewEncoder(tmpfile)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError writing config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 		tmpfile.Close()
@@ -652,26 +711,28 @@ var servicesEditCmd = &cobra.Command{
 			editor = "vim" // Default to vim
 		}
 
+		fmt.Printf("%sOpening configuration in %s...%s\n", logger.Blue, editor, logger.Reset)
+
 		cmd2 := exec.Command(editor, tmpfile.Name())
 		cmd2.Stdin = os.Stdin
 		cmd2.Stdout = os.Stdout
 		cmd2.Stderr = os.Stderr
 
 		if err := cmd2.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error running editor: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError running editor: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		// Read updated config
 		data, err := os.ReadFile(tmpfile.Name())
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading updated config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError reading updated config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		var updatedService config.DockerServiceConfig
 		if err := json.Unmarshal(data, &updatedService); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing updated config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError parsing updated config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -680,11 +741,12 @@ var servicesEditCmd = &cobra.Command{
 
 		// Save the updated config
 		if err := cfg.Save("spin.config.json"); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError saving config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Service %s configuration updated successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s configuration updated successfully%s\n",
+			logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -695,21 +757,22 @@ var servicesExportCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
+		fmt.Printf("%sExporting configuration for %s%s%s...%s\n", logger.Blue, logger.Cyan, serviceName, logger.Blue, logger.Reset)
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error exporting config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError exporting config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 	},
@@ -722,19 +785,19 @@ var servicesImportCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		data, err := os.ReadFile(args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError reading file: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		var service config.DockerServiceConfig
 		if err := json.Unmarshal(data, &service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError parsing config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -746,6 +809,9 @@ var servicesImportCmd = &cobra.Command{
 			serviceName = strings.TrimSuffix(base, filepath.Ext(base))
 		}
 
+		fmt.Printf("%sImporting service configuration as %s%s%s...%s\n",
+			logger.Blue, logger.Cyan, serviceName, logger.Blue, logger.Reset)
+
 		// Add the service to config
 		if cfg.Services == nil {
 			cfg.Services = make(map[string]*config.DockerServiceConfig)
@@ -754,11 +820,12 @@ var servicesImportCmd = &cobra.Command{
 
 		// Save the updated config
 		if err := cfg.Save("spin.config.json"); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError saving config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Service %s imported successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s imported successfully%s\n",
+			logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -769,27 +836,27 @@ var servicesUpdateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		serviceName := args[0]
 		service, ok := cfg.Services[serviceName]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Service %s not found\n", serviceName)
+			fmt.Fprintf(os.Stderr, "%sService %s%s%s not found%s\n", logger.Red, logger.Cyan, serviceName, logger.Red, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		// Stop the service if it's running
 		if manager.IsRunning(serviceName) {
 			if err := manager.StopService(serviceName); err != nil {
-				fmt.Fprintf(os.Stderr, "Error stopping service: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError stopping service: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 		}
@@ -802,13 +869,17 @@ var servicesUpdateCmd = &cobra.Command{
 			service.Image = fmt.Sprintf("%s:%s", imageParts[0], version)
 		}
 
-		fmt.Printf("Updating %s to image %s...\n", serviceName, service.Image)
+		fmt.Printf("%sUpdating %s%s%s to image %s%s%s...%s\n",
+			logger.Blue, logger.Cyan, serviceName, logger.Blue,
+			logger.Cyan, service.Image, logger.Blue, logger.Reset)
 		if err := manager.StartService(serviceName, service); err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating service: %v\nSuggestion: Check if the specified version exists\n", err)
+			fmt.Fprintf(os.Stderr, "%sError updating service: %v\nSuggestion: Check if the specified version exists%s\n",
+				logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Service %s updated successfully\n", serviceName)
+		fmt.Printf("%sService %s%s%s updated successfully%s\n",
+			logger.Green, logger.Cyan, serviceName, logger.Green, logger.Reset)
 	},
 }
 
@@ -818,18 +889,21 @@ var servicesStatsCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading config: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		manager, err := docker.NewServiceManager("./data")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating service manager: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating service manager: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tCPU\tMEMORY\tDISK")
+		fmt.Fprintf(w, "%sNAME\tCPU\tMEMORY\tDISK%s\n",
+			logger.Cyan,
+			logger.Reset,
+		)
 
 		for name := range cfg.Services {
 			containerID, err := manager.FindContainer(name)
@@ -839,14 +913,22 @@ var servicesStatsCmd = &cobra.Command{
 
 			stats, err := manager.Client().ContainerStats(context.Background(), containerID, false)
 			if err != nil {
-				fmt.Fprintf(w, "%s\tError\tError\tError\n", name)
+				fmt.Fprintf(w, "%s%s%s\t%sError%s\t%sError%s\t%sError%s\n",
+					logger.Cyan, name, logger.Reset,
+					logger.Red, logger.Reset,
+					logger.Red, logger.Reset,
+					logger.Red, logger.Reset)
 				continue
 			}
 			defer stats.Body.Close()
 
 			var statsData types.Stats
 			if err := json.NewDecoder(stats.Body).Decode(&statsData); err != nil {
-				fmt.Fprintf(w, "%s\tError\tError\tError\n", name)
+				fmt.Fprintf(w, "%s%s%s\t%sError%s\t%sError%s\t%sError%s\n",
+					logger.Cyan, name, logger.Reset,
+					logger.Red, logger.Reset,
+					logger.Red, logger.Reset,
+					logger.Red, logger.Reset)
 				continue
 			}
 
@@ -861,7 +943,26 @@ var servicesStatsCmd = &cobra.Command{
 			// Calculate memory usage
 			memoryUsage := float64(statsData.MemoryStats.Usage) / 1024 / 1024 // Convert to MB
 
-			fmt.Fprintf(w, "%s\t%.1f%%\t%.0fMB\t-\n", name, cpuPercent, memoryUsage)
+			// Color CPU usage based on percentage
+			cpuColor := logger.Green
+			if cpuPercent >= 80 {
+				cpuColor = logger.Red
+			} else if cpuPercent >= 50 {
+				cpuColor = logger.Yellow
+			}
+
+			// Color memory usage based on amount
+			memColor := logger.Green
+			if memoryUsage >= 1024 { // >= 1GB
+				memColor = logger.Red
+			} else if memoryUsage >= 512 { // >= 512MB
+				memColor = logger.Yellow
+			}
+
+			fmt.Fprintf(w, "%s%s%s\t%s%.1f%%%s\t%s%.0fMB%s\t-\n",
+				logger.Cyan, name, logger.Reset,
+				cpuColor, cpuPercent, logger.Reset,
+				memColor, memoryUsage, logger.Reset)
 		}
 		w.Flush()
 	},

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/userconfig"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,7 @@ Example:
 			var err error
 			appPath, err = os.Getwd()
 			if err != nil {
-				fmt.Printf("Error getting current directory: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError getting current directory: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 			// Extract app name from directory
@@ -48,26 +49,26 @@ Example:
 			appPath = appName
 			// Create project directory if it doesn't exist
 			if err := os.MkdirAll(appPath, 0755); err != nil {
-				fmt.Printf("Error creating directory: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError creating directory: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 		}
 
 		configPath := filepath.Join(appPath, "spin.config.json")
 		if config.Exists(configPath) && !force {
-			fmt.Printf("Warning: spin.config.json already exists in %s\n", appPath)
-			fmt.Println("Do you want to overwrite it? (y/N)")
+			fmt.Printf("%sWarning: spin.config.json already exists in %s%s\n", logger.Yellow, appPath, logger.Reset)
+			fmt.Printf("%sDo you want to overwrite it? (y/N)%s\n", logger.Blue, logger.Reset)
 
 			reader := bufio.NewReader(os.Stdin)
 			response, err := reader.ReadString('\n')
 			if err != nil {
-				fmt.Printf("Error reading input: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError reading input: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 
 			response = strings.ToLower(strings.TrimSpace(response))
 			if response != "y" && response != "yes" {
-				fmt.Println("Setup cancelled")
+				fmt.Printf("%sSetup cancelled%s\n", logger.Yellow, logger.Reset)
 				os.Exit(0)
 			}
 		}
@@ -75,7 +76,7 @@ Example:
 		// Load user configuration for default organization
 		userCfg, err := userconfig.Load()
 		if err != nil {
-			fmt.Printf("Error loading user configuration: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError loading user configuration: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
@@ -84,15 +85,16 @@ Example:
 		if repoFlag != "" {
 			repo, err = config.ParseRepositoryString(repoFlag)
 			if err != nil {
-				fmt.Printf("Error parsing repository: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%sError parsing repository: %v%s\n", logger.Red, err, logger.Reset)
 				os.Exit(1)
 			}
 		} else {
 			defaultOrg := userCfg.DefaultOrganization
 			if defaultOrg == "" {
-				fmt.Println("No default organization set. Please either:")
-				fmt.Println("1. Set a default organization: spin config set-org <organization>")
-				fmt.Println("2. Specify repository with --repo flag: spin setup", appName, "--repo=org/name")
+				fmt.Printf("%sNo default organization set. Please either:%s\n", logger.Yellow, logger.Reset)
+				fmt.Printf("1. Set a default organization: %sspin config set-org <organization>%s\n", logger.Cyan, logger.Reset)
+				fmt.Printf("2. Specify repository with --repo flag: %sspin setup %s --repo=org/name%s\n",
+					logger.Cyan, appName, logger.Reset)
 				os.Exit(1)
 			}
 			repo = &config.Repository{
@@ -102,10 +104,10 @@ Example:
 		}
 
 		// Detect project type and configuration
-		fmt.Println("\nAnalyzing project structure...")
+		fmt.Printf("\n%sAnalyzing project structure...%s\n", logger.Blue, logger.Reset)
 		detected, err := config.DetectProjectType(appPath)
 		if err != nil {
-			fmt.Printf("Warning: Could not detect project type: %v\n", err)
+			fmt.Printf("%sWarning: Could not detect project type: %v%s\n", logger.Yellow, err, logger.Reset)
 			detected = &config.Config{
 				Type: "unknown",
 			}
@@ -139,61 +141,61 @@ Example:
 
 		// Add detected configurations
 		if detected != nil && detected.Rails != nil {
-			fmt.Println("\nDetected Rails application:")
+			fmt.Printf("\n%sDetected Rails application:%s\n", logger.Blue, logger.Reset)
 
 			// Ruby version
 			if detected.Rails.Ruby.Version != "" {
-				fmt.Printf("  ✓ Ruby Version: %s\n", detected.Rails.Ruby.Version)
+				fmt.Printf("  %s✓%s Ruby Version: %s%s%s\n", logger.Green, logger.Reset, logger.Cyan, detected.Rails.Ruby.Version, logger.Reset)
 			} else {
-				fmt.Println("  ⚠ Ruby Version: not found")
+				fmt.Printf("  %s⚠%s Ruby Version: %snot found%s\n", logger.Yellow, logger.Reset, logger.Red, logger.Reset)
 			}
 
 			// Rails version
 			if detected.Rails.Rails.Version != "" {
-				fmt.Printf("  ✓ Rails Version: %s\n", detected.Rails.Rails.Version)
+				fmt.Printf("  %s✓%s Rails Version: %s%s%s\n", logger.Green, logger.Reset, logger.Cyan, detected.Rails.Rails.Version, logger.Reset)
 			} else {
-				fmt.Println("  ⚠ Rails Version: not found")
+				fmt.Printf("  %s⚠%s Rails Version: %snot found%s\n", logger.Yellow, logger.Reset, logger.Red, logger.Reset)
 			}
 
 			// Database
 			if detected.Rails.Database.Type != "" {
-				fmt.Printf("  ✓ Database: %s\n", detected.Rails.Database.Type)
+				fmt.Printf("  %s✓%s Database: %s%s%s\n", logger.Green, logger.Reset, logger.Cyan, detected.Rails.Database.Type, logger.Reset)
 				for key, value := range detected.Rails.Database.Settings {
-					fmt.Printf("    - %s: %s\n", key, value)
+					fmt.Printf("    %s-%s %s: %s%s%s\n", logger.Blue, logger.Reset, key, logger.Cyan, value, logger.Reset)
 				}
 			} else {
-				fmt.Println("  ⚠ Database: not configured")
+				fmt.Printf("  %s⚠%s Database: %snot configured%s\n", logger.Yellow, logger.Reset, logger.Red, logger.Reset)
 			}
 
 			// Services
 			if detected.Rails.Services.Redis {
-				fmt.Println("  ✓ Redis: enabled")
+				fmt.Printf("  %s✓%s Redis: %senabled%s\n", logger.Green, logger.Reset, logger.Cyan, logger.Reset)
 			}
 			if detected.Rails.Services.Sidekiq {
-				fmt.Println("  ✓ Sidekiq: enabled")
+				fmt.Printf("  %s✓%s Sidekiq: %senabled%s\n", logger.Green, logger.Reset, logger.Cyan, logger.Reset)
 			}
 
 			// Scripts
-			fmt.Println("\nGenerated Scripts:")
-			fmt.Printf("  setup: %s\n", detected.Scripts.Setup)
-			fmt.Printf("  start: %s\n", detected.Scripts.Start)
-			fmt.Printf("  test:  %s\n", detected.Scripts.Test)
+			fmt.Printf("\n%sGenerated Scripts:%s\n", logger.Blue, logger.Reset)
+			fmt.Printf("  %ssetup:%s %s\n", logger.Purple, logger.Reset, detected.Scripts.Setup)
+			fmt.Printf("  %sstart:%s %s\n", logger.Purple, logger.Reset, detected.Scripts.Start)
+			fmt.Printf("  %stest:%s  %s\n", logger.Purple, logger.Reset, detected.Scripts.Test)
 		}
 
 		// Save configuration
 		if err := cfg.Save(configPath); err != nil {
-			fmt.Printf("Error creating config file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%sError creating config file: %v%s\n", logger.Red, err, logger.Reset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("\nSuccessfully initialized %s\n", appName)
-		fmt.Printf("Repository: %s\n", cfg.Repository.GetFullName())
-		fmt.Printf("Configuration: %s\n", configPath)
+		fmt.Printf("\n%s✨ Successfully initialized %s%s%s\n", logger.Green, logger.Cyan, appName, logger.Reset)
+		fmt.Printf("%sRepository:%s %s\n", logger.Blue, logger.Reset, cfg.Repository.GetFullName())
+		fmt.Printf("%sConfiguration:%s %s\n", logger.Blue, logger.Reset, configPath)
 
-		fmt.Println("\nNext steps:")
-		fmt.Println("  1. cd", appName)
-		fmt.Println("  2. Edit spin.config.json to customize your project")
-		fmt.Println("  3. Run 'spin up' to start development")
+		fmt.Printf("\n%sNext steps:%s\n", logger.Purple, logger.Reset)
+		fmt.Printf("  %s1.%s cd %s%s%s\n", logger.Yellow, logger.Reset, logger.Cyan, appName, logger.Reset)
+		fmt.Printf("  %s2.%s Edit %sspin.config.json%s to customize your project\n", logger.Yellow, logger.Reset, logger.Cyan, logger.Reset)
+		fmt.Printf("  %s3.%s Run %sspin up%s to start development\n", logger.Yellow, logger.Reset, logger.Cyan, logger.Reset)
 	},
 }
 

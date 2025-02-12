@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/afomera/spin/internal/config"
+	lg "github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/process"
 	"github.com/afomera/spin/internal/service"
 	"github.com/spf13/cobra"
@@ -36,42 +37,42 @@ Example:
 		configPath := filepath.Join(appPath, "spin.config.json")
 		cfg, err := config.LoadConfig(configPath)
 		if err != nil {
-			fmt.Printf("Error loading configuration: %v\n", err)
+			fmt.Printf("%sError loading configuration: %v%s\n", lg.Red, err, lg.Reset)
 			os.Exit(1)
 		}
 
 		// Initialize service manager and required services
 		svcManager := service.NewServiceManager()
 		if len(cfg.Dependencies.Services) > 0 {
-			fmt.Println("Checking required services...")
+			fmt.Printf("%sChecking required services...%s\n", lg.Blue, lg.Reset)
 			for _, serviceName := range cfg.Dependencies.Services {
 				svc, err := service.CreateService(serviceName)
 				if err != nil {
-					fmt.Printf("Error creating service %s: %v\n", serviceName, err)
+					fmt.Printf("%sError creating service %s: %v%s\n", lg.Red, serviceName, err, lg.Reset)
 					os.Exit(1)
 				}
 				svcManager.RegisterService(svc)
 
 				if !svc.IsRunning() {
-					fmt.Printf("Starting %s...\n", serviceName)
+					fmt.Printf("Starting %s%s%s...\n", lg.Cyan, serviceName, lg.Reset)
 					if err := svcManager.StartService(serviceName); err != nil {
-						fmt.Printf("Error starting service %s: %v\n", serviceName, err)
+						fmt.Printf("%sError starting service %s: %v%s\n", lg.Red, serviceName, err, lg.Reset)
 						os.Exit(1)
 					}
 				} else {
-					fmt.Printf("Service %s is already running\n", serviceName)
+					fmt.Printf("%sService %s%s%s is already running%s\n", lg.Green, lg.Cyan, serviceName, lg.Green, lg.Reset)
 				}
 			}
 		}
 
 		// Check if start script is defined
 		if cfg.Scripts.Start == "" {
-			fmt.Println("Error: No start script defined in spin.config.json")
-			fmt.Println("Add a start script to your configuration:")
+			fmt.Printf("%sError: No start script defined in spin.config.json%s\n", lg.Red, lg.Reset)
+			fmt.Printf("%sAdd a start script to your configuration:%s\n", lg.Yellow, lg.Reset)
 			fmt.Println(`{
-  "scripts": {
-    "start": "your-start-command"
-  }
+		"scripts": {
+			 "start": "your-start-command"
+		}
 }`)
 			os.Exit(1)
 		}
@@ -87,7 +88,7 @@ Example:
 		// Split the command string into command and arguments
 		parts := strings.Fields(cfg.Scripts.Start)
 		if len(parts) == 0 {
-			fmt.Println("Error: Invalid start script")
+			fmt.Printf("%sError: Invalid start script%s\n", lg.Red, lg.Reset)
 			os.Exit(1)
 		}
 
@@ -102,33 +103,33 @@ Example:
 
 		// Run bundle install if Gemfile exists
 		if _, err := os.Stat(filepath.Join(appPath, "Gemfile")); err == nil {
-			fmt.Println("Running bundle install...")
+			fmt.Printf("%sRunning bundle install...%s\n", lg.Blue, lg.Reset)
 			bundleCmd := exec.Command("bundle", "install")
 			bundleCmd.Dir = appPath
 			bundleCmd.Stdout = os.Stdout
 			bundleCmd.Stderr = os.Stderr
 			if err := bundleCmd.Run(); err != nil {
-				fmt.Printf("Error running bundle install: %v\n", err)
+				fmt.Printf("%sError running bundle install: %v%s\n", lg.Red, err, lg.Reset)
 				os.Exit(1)
 			}
 
 			// Run database migrations
-			fmt.Println("Running database migrations...")
+			fmt.Printf("%sRunning database migrations...%s\n", lg.Blue, lg.Reset)
 			migrateCmd := exec.Command("bundle", "exec", "rails", "db:migrate")
 			migrateCmd.Dir = appPath
 			migrateCmd.Stdout = os.Stdout
 			migrateCmd.Stderr = os.Stderr
 			if err := migrateCmd.Run(); err != nil {
-				fmt.Printf("Error running migrations: %v\n", err)
+				fmt.Printf("%sError running migrations: %v%s\n", lg.Red, err, lg.Reset)
 				os.Exit(1)
 			}
 		}
 
-		fmt.Printf("Starting development environment for %s...\n", cfg.Name)
+		fmt.Printf("%sStarting development environment for %s%s%s...%s\n", lg.Blue, lg.Cyan, cfg.Name, lg.Blue, lg.Reset)
 
 		// Start the process
 		if err := processManager.StartProcess("web", command, cmdArgs, env, appPath); err != nil {
-			fmt.Printf("Error starting development server: %v\n", err)
+			fmt.Printf("%sError starting development server: %v%s\n", lg.Red, err, lg.Reset)
 			os.Exit(1)
 		}
 
@@ -138,7 +139,7 @@ Example:
 			// Parse Procfile.dev
 			procfile, err := os.Open(procfilePath)
 			if err != nil {
-				fmt.Printf("Error reading Procfile.dev: %v\n", err)
+				fmt.Printf("%sError reading Procfile.dev: %v%s\n", lg.Red, err, lg.Reset)
 				os.Exit(1)
 			}
 			defer procfile.Close()
@@ -176,13 +177,13 @@ Example:
 				}
 
 				if err := processManager.StartProcess(procName, command, args, env, appPath); err != nil {
-					fmt.Printf("Error starting process %s: %v\n", procName, err)
+					fmt.Printf("%sError starting process %s: %v%s\n", lg.Red, procName, err, lg.Reset)
 					os.Exit(1)
 				}
 			}
 		}
 
-		fmt.Println("Press Ctrl+C to stop all processes")
+		fmt.Printf("\n%sPress Ctrl+C to stop all processes%s\n", lg.Yellow, lg.Reset)
 
 		// Handle signals for graceful shutdown
 		processManager.HandleSignals()
@@ -192,7 +193,7 @@ Example:
 
 		// Stop services if they were started by us
 		if len(cfg.Dependencies.Services) > 0 {
-			fmt.Println("Stopping services...")
+			fmt.Printf("%sStopping services...%s\n", lg.Blue, lg.Reset)
 			svcManager.StopAll()
 		}
 	},
