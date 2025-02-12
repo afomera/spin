@@ -146,7 +146,6 @@ jobs:
               # Check if notarization succeeded using jq
               if [ "$(jq -r .status notarization.log)" = "Accepted" ]; then
                 echo "Notarization succeeded, waiting for processing..."
-                # Wait for notarization to be fully processed
                 sleep 30
                 
                 # Try stapling up to 3 times
@@ -154,8 +153,21 @@ jobs:
                 attempt=1
                 while [ $attempt -le $max_attempts ]; do
                   echo "Attempting to staple (attempt $attempt of $max_attempts)..."
-                  if xcrun stapler staple "dist/spin_darwin_$arch/spin"; then
+                  
+                  # Create a fresh copy of the binary
+                  rm -rf "dist/temp_$arch"
+                  mkdir -p "dist/temp_$arch"
+                  cp "dist/spin_darwin_$arch/spin" "dist/temp_$arch/"
+                  
+                  # Create a new zip for stapling
+                  ditto -c -k --keepParent "dist/temp_$arch" "dist/temp_$arch.zip"
+                  
+                  if xcrun stapler staple "dist/temp_$arch.zip"; then
                     echo "Stapling succeeded!"
+                    # Extract the stapled binary
+                    ditto -x -k "dist/temp_$arch.zip" "dist/temp_extract_$arch"
+                    cp "dist/temp_extract_$arch/temp_$arch/spin" "dist/spin_darwin_$arch/spin"
+                    rm -rf "dist/temp_$arch" "dist/temp_extract_$arch"
                     break
                   else
                     if [ $attempt -eq $max_attempts ]; then
