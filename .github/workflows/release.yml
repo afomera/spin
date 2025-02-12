@@ -36,6 +36,29 @@ jobs:
           echo "Available certificates:"
           security find-identity -v -p codesigning build.keychain
 
+      - name: Create Info.plist
+        run: |
+          cat > Info.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.afomera.spin</string>
+              <key>CFBundleName</key>
+              <string>spin</string>
+              <key>CFBundleExecutable</key>
+              <string>spin</string>
+              <key>CFBundleVersion</key>
+              <string>1.0.0</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+          </dict>
+          </plist>
+          EOF
+
       - name: Create entitlements.plist
         run: |
           cat > entitlements.plist << EOF
@@ -48,6 +71,10 @@ jobs:
               <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
               <true/>
               <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+              <key>com.apple.security.get-task-allow</key>
+              <true/>
+              <key>com.apple.security.cs.debugger</key>
               <true/>
           </dict>
           </plist>
@@ -77,24 +104,54 @@ jobs:
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
         run: |
           echo "Signing binaries..."
-          codesign --force -s "$CERTIFICATE_NAME" --timestamp --options runtime -v --entitlements entitlements.plist "dist/spin_darwin_amd64/spin"
-          codesign --force -s "$CERTIFICATE_NAME" --timestamp --options runtime -v --entitlements entitlements.plist "dist/spin_darwin_arm64/spin"
-
-          echo "Creating zip for notarization..."
-          ditto -c -k --keepParent "dist/spin_darwin_amd64/spin" "dist/spin_darwin_amd64.zip"
-          ditto -c -k --keepParent "dist/spin_darwin_arm64/spin" "dist/spin_darwin_arm64.zip"
+          for arch in "amd64" "arm64"; do
+            echo "Processing darwin_$arch..."
+            
+            # Create a clean app structure
+            mkdir -p "dist/Spin.app/Contents/MacOS"
+            cp Info.plist "dist/Spin.app/Contents/"
+            cp "dist/spin_darwin_$arch/spin" "dist/Spin.app/Contents/MacOS/"
+            
+            # Sign with hardened runtime
+            codesign --force -s "$CERTIFICATE_NAME" \
+              --timestamp \
+              --options runtime \
+              --entitlements entitlements.plist \
+              -v --deep \
+              "dist/Spin.app"
+            
+            # Create zip for notarization
+            ditto -c -k --keepParent "dist/Spin.app" "dist/spin_darwin_$arch.zip"
+            
+            # Clean up app structure
+            rm -rf "dist/Spin.app"
+          done
 
           echo "Submitting for notarization..."
-          xcrun notarytool submit "dist/spin_darwin_amd64.zip" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun notarytool submit "dist/spin_darwin_arm64.zip" --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-
-          echo "Stapling notarization..."
-          xcrun stapler staple "dist/spin_darwin_amd64/spin"
-          xcrun stapler staple "dist/spin_darwin_arm64/spin"
+          for arch in "amd64" "arm64"; do
+            echo "Notarizing darwin_$arch..."
+            xcrun notarytool submit "dist/spin_darwin_$arch.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait \
+              --verbose
+            
+            # Get notarization info
+            xcrun notarytool log --verbose \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              $(xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_ID_PASSWORD" --team-id "$APPLE_TEAM_ID" | grep "spin_darwin_$arch.zip" | head -n1 | awk '{print $1}')
+          done
 
           echo "Creating final archives..."
-          (cd "dist/spin_darwin_amd64" && tar czf "../spin_darwin_amd64.tar.gz" "spin")
-          (cd "dist/spin_darwin_arm64" && tar czf "../spin_darwin_arm64.tar.gz" "spin")
+          for arch in "amd64" "arm64"; do
+            unzip -o "dist/spin_darwin_$arch.zip" -d "dist/temp_$arch"
+            cp "dist/temp_$arch/Spin.app/Contents/MacOS/spin" "dist/spin_darwin_$arch/spin"
+            (cd "dist/spin_darwin_$arch" && tar czf "../spin_darwin_$arch.tar.gz" "spin")
+            rm -rf "dist/temp_$arch"
+          done
 
       - name: Create other platform archives
         run: |
