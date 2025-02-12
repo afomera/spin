@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest # Changed to macOS runner for signing
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +19,57 @@ jobs:
         with:
           go-version: "1.21"
           cache: true
+
+      - name: Import Code-Signing Certificates
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+      - name: Install gon for notarization
+        run: |
+          brew install mitchellh/gon/gon
+
+      - name: Create gon config
+        run: |
+          cat > gon.json << EOF
+          {
+            "source": ["dist/spin_darwin_amd64/spin", "dist/spin_darwin_arm64/spin"],
+            "bundle_id": "com.afomera.spin",
+            "apple_id": {
+              "username": "${{ secrets.APPLE_ID }}",
+              "password": "${{ secrets.APPLE_ID_PASSWORD }}"
+            },
+            "sign": {
+              "application_identity": "Developer ID Application: ${{ secrets.APPLE_TEAM_ID }}"
+            }
+          }
+          EOF
+
+      - name: Create entitlements.plist
+        run: |
+          cat > entitlements.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.cs.allow-jit</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
 
       - name: Build binaries
         run: |
@@ -34,15 +85,25 @@ jobs:
             echo "Building for $OS/$ARCH..."
             mkdir -p "dist/spin_${OS}_${ARCH}"
             GOOS=$OS GOARCH=$ARCH go build -o "dist/spin_${OS}_${ARCH}/$output_name" .
-            
-            if [ "$OS" = "windows" ]; then
-              (cd "dist/spin_${OS}_${ARCH}" && zip "../spin_${OS}_${ARCH}.zip" "$output_name")
-            else
-              (cd "dist/spin_${OS}_${ARCH}" && tar czf "../spin_${OS}_${ARCH}.tar.gz" "$output_name")
-            fi
           done
-          echo "Build complete. Contents of dist directory:"
-          ls -la dist/
+
+      - name: Sign and Notarize macOS binaries
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Sign and notarize the binaries
+          gon gon.json
+
+          # Create archives after notarization
+          (cd "dist/spin_darwin_amd64" && tar czf "../spin_darwin_amd64.tar.gz" "spin")
+          (cd "dist/spin_darwin_arm64" && tar czf "../spin_darwin_arm64.tar.gz" "spin")
+
+      - name: Create other platform archives
+        run: |
+          # Create archives for Linux and Windows
+          (cd "dist/spin_linux_amd64" && tar czf "../spin_linux_amd64.tar.gz" "spin")
+          (cd "dist/spin_linux_arm64" && tar czf "../spin_linux_arm64.tar.gz" "spin")
+          (cd "dist/spin_windows_amd64" && zip "../spin_windows_amd64.zip" "spin.exe")
 
       - name: Create Release
         id: create_release
