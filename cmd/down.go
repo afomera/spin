@@ -29,7 +29,7 @@ Example:
 			if len(cfg.Dependencies.Services) > 0 {
 				fmt.Printf("%sStopping services...%s\n", lg.Blue, lg.Reset)
 				for _, serviceName := range cfg.Dependencies.Services {
-					svc, err := service.CreateService(serviceName)
+					svc, err := service.CreateService(serviceName, cfg)
 					if err != nil {
 						fmt.Printf("%sWarning: Failed to create service %s: %v%s\n", lg.Yellow, serviceName, err, lg.Reset)
 						continue

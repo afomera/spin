@@ -102,6 +102,36 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("error parsing config file: %w", err)
 	}
 
+	// Initialize services map if nil
+	if config.Services == nil {
+		config.Services = make(map[string]*DockerServiceConfig)
+	}
+
+	// Add default Docker configurations for required services that aren't explicitly configured
+	for _, serviceName := range config.Dependencies.Services {
+		// Handle postgresql -> postgres mapping
+		lookupName := serviceName
+		if serviceName == "postgresql" {
+			lookupName = "postgres"
+		}
+
+		if _, exists := config.Services[lookupName]; !exists {
+			if dockerCfg := GetDefaultDockerConfig(serviceName); dockerCfg != nil {
+				config.Services[lookupName] = dockerCfg
+			}
+		}
+	}
+
+	// If it's a Rails app, also check database type
+	if config.Rails != nil && config.Rails.Database.Type != "" {
+		dbType := config.Rails.Database.Type
+		if _, exists := config.Services[dbType]; !exists {
+			if dockerCfg := GetDefaultDockerConfig(dbType); dockerCfg != nil {
+				config.Services[dbType] = dockerCfg
+			}
+		}
+	}
+
 	return &config, nil
 }
 

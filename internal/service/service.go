@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/service/docker"
 )
 
 // Service represents a system service like Redis or PostgreSQL
@@ -167,15 +170,61 @@ func NewSQLite3Service() *SQLite3Service {
 
 // GetAvailableServices returns a list of supported service types
 func GetAvailableServices() []string {
-	return []string{"redis", "postgresql", "sqlite3"}
+	return []string{"redis", "postgres", "postgresql", "sqlite3"}
+}
+
+// DockerService represents a Docker-based service
+type DockerService struct {
+	BaseService
+	config *config.DockerServiceConfig
+}
+
+func (s *DockerService) Start() error {
+	// Use Docker manager to start the service
+	manager, err := docker.NewServiceManager("")
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+
+	return manager.StartService(s.name, s.config)
+}
+
+func (s *DockerService) Stop() error {
+	manager, err := docker.NewServiceManager("")
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+
+	return manager.StopService(s.name)
+}
+
+func (s *DockerService) IsRunning() bool {
+	manager, err := docker.NewServiceManager("")
+	if err != nil {
+		return false
+	}
+
+	return manager.IsRunning(s.name)
 }
 
 // CreateService creates a new service instance by name
-func CreateService(name string) (Service, error) {
+func CreateService(name string, cfg *config.Config) (Service, error) {
+	// Check if there's a Docker configuration for this service
+	if dockerCfg, ok := cfg.Services[name]; ok {
+		return &DockerService{
+			BaseService: BaseService{
+				name:         name,
+				dependencies: []string{},
+			},
+			config: dockerCfg,
+		}, nil
+	}
+
+	// Fall back to local system services
 	switch strings.ToLower(name) {
 	case "redis":
 		return NewRedisService(), nil
-	case "postgresql":
+	case "postgresql", "postgres":
 		return NewPostgresService(), nil
 	case "sqlite3":
 		return NewSQLite3Service(), nil

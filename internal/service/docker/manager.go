@@ -46,28 +46,26 @@ func NewServiceManager(dataDir string) (*ServiceManager, error) {
 
 // StartService starts a Docker service
 func (m *ServiceManager) StartService(name string, cfg *config.DockerServiceConfig) error {
-	// Check if port is available
-	if !m.isPortAvailable(cfg.Port) {
-		// Try to stop any existing container using this port
-		containers, err := m.client.ContainerList(m.ctx, types.ContainerListOptions{All: true})
+	// Check for existing container
+	existingID, _ := m.FindContainer(name)
+	if existingID != "" {
+		// Container exists, check its state
+		container, err := m.client.ContainerInspect(m.ctx, existingID)
 		if err != nil {
-			return fmt.Errorf("failed to list containers: %w", err)
+			return fmt.Errorf("failed to inspect container: %w", err)
 		}
 
-		for _, container := range containers {
-			for _, port := range container.Ports {
-				if port.PublicPort == uint16(cfg.Port) {
-					fmt.Printf("Found existing container using port %d, stopping it...\n", cfg.Port)
-					timeout := 10 * time.Second
-					if err := m.client.ContainerStop(m.ctx, container.ID, &timeout); err != nil {
-						return fmt.Errorf("failed to stop existing container: %w", err)
-					}
-					if err := m.client.ContainerRemove(m.ctx, container.ID, types.ContainerRemoveOptions{}); err != nil {
-						return fmt.Errorf("failed to remove existing container: %w", err)
-					}
-					break
-				}
+		if container.State.Running {
+			// Container is running, stop it
+			timeout := 10 * time.Second
+			if err := m.client.ContainerStop(m.ctx, existingID, &timeout); err != nil {
+				return fmt.Errorf("failed to stop container: %w", err)
 			}
+		}
+	} else {
+		// No existing container, check if port is available
+		if !m.isPortAvailable(cfg.Port) {
+			return fmt.Errorf("port %d is already in use by another process", cfg.Port)
 		}
 	}
 
@@ -299,7 +297,13 @@ func (m *ServiceManager) pullImage(image string) error {
 func (m *ServiceManager) createContainer(name string, cfg *config.DockerServiceConfig) (string, error) {
 	// Check if container already exists
 	if containerID, _ := m.FindContainer(name); containerID != "" {
-		return containerID, nil
+		// Remove the existing container but keep its volumes
+		if err := m.client.ContainerRemove(m.ctx, containerID, types.ContainerRemoveOptions{
+			RemoveVolumes: false, // Keep the volumes
+			Force:         true,
+		}); err != nil {
+			return "", fmt.Errorf("failed to remove existing container: %w", err)
+		}
 	}
 
 	// Prepare port bindings
@@ -314,10 +318,18 @@ func (m *ServiceManager) createContainer(name string, cfg *config.DockerServiceC
 	// Prepare volume mounts
 	var mounts []mount.Mount
 	for name, target := range cfg.Volumes {
+		// For PostgreSQL, ensure we're using the correct data directory
+		mountTarget := target
+		if name == "data" && (cfg.Image == "postgres:15" || strings.HasPrefix(cfg.Image, "postgres:")) {
+			// Always use /var/lib/postgresql/data as the container target path
+			// This is required by the PostgreSQL image
+			mountTarget = "/var/lib/postgresql/data"
+		}
+
 		mounts = append(mounts, mount.Mount{
 			Type:   mount.TypeVolume,
-			Source: fmt.Sprintf("spin_%s_%s", name, name),
-			Target: target,
+			Source: fmt.Sprintf("spin_%s_data", name),
+			Target: mountTarget,
 		})
 	}
 
@@ -337,7 +349,7 @@ func (m *ServiceManager) createContainer(name string, cfg *config.DockerServiceC
 		},
 		nil,
 		nil,
-		fmt.Sprintf("spin_%s", name),
+		fmt.Sprintf("spin_%s", strings.ReplaceAll(name, "postgresql", "postgres")),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create container %s: %w", name, err)
@@ -353,7 +365,9 @@ func (m *ServiceManager) FindContainer(name string) (string, error) {
 		return "", fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	containerName := fmt.Sprintf("/spin_%s", name)
+	// Always use postgres instead of postgresql for container names
+	searchName := strings.ReplaceAll(name, "postgresql", "postgres")
+	containerName := fmt.Sprintf("/spin_%s", searchName)
 	for _, container := range containers {
 		for _, n := range container.Names {
 			if n == containerName {
