@@ -254,7 +254,7 @@ func (m *serviceConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					version = "latest"
 				case 1:
 					switch m.serviceType {
-					case "postgres":
+					case "postgresql":
 						version = "14"
 					case "redis":
 						version = "6"
@@ -400,7 +400,7 @@ var servicesAddCmd = &cobra.Command{
 
 		model := &serviceConfigModel{
 			step:    0,
-			choices: []string{"postgres", "redis", "mysql"},
+			choices: []string{"postgresql", "redis", "mysql"},
 		}
 
 		p := tea.NewProgram(model)

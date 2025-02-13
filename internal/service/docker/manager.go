@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/afomera/spin/internal/config"
+	"github.com/afomera/spin/internal/tracker"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -89,6 +90,13 @@ func (m *ServiceManager) StartService(name string, cfg *config.DockerServiceConf
 	if cfg.HealthCheck != nil {
 		if err := m.waitForHealthy(containerID, cfg.HealthCheck); err != nil {
 			return fmt.Errorf("service %s failed health check: %w", name, err)
+		}
+	}
+
+	// Notify process tracker if set
+	if t := tracker.GetTracker(); t != nil {
+		if err := t.StartDockerProcess(name, containerID, cfg.Image); err != nil {
+			return fmt.Errorf("failed to track container: %w", err)
 		}
 	}
 
@@ -349,7 +357,7 @@ func (m *ServiceManager) createContainer(name string, cfg *config.DockerServiceC
 		},
 		nil,
 		nil,
-		fmt.Sprintf("spin_%s", strings.ReplaceAll(name, "postgresql", "postgres")),
+		fmt.Sprintf("spin_%s", name),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create container %s: %w", name, err)
@@ -365,9 +373,7 @@ func (m *ServiceManager) FindContainer(name string) (string, error) {
 		return "", fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	// Always use postgres instead of postgresql for container names
-	searchName := strings.ReplaceAll(name, "postgresql", "postgres")
-	containerName := fmt.Sprintf("/spin_%s", searchName)
+	containerName := fmt.Sprintf("/spin_%s", name)
 	for _, container := range containers {
 		for _, n := range container.Names {
 			if n == containerName {

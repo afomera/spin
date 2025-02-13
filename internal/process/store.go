@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// ProcessType represents the type of process
+type ProcessType string
+
+const (
+	ProcessTypeStandard ProcessType = "standard"
+	ProcessTypeDocker   ProcessType = "docker"
+)
+
 // ProcessInfo stores serializable process information
 type ProcessInfo struct {
 	Name          string        `json:"name"`
@@ -20,6 +28,9 @@ type ProcessInfo struct {
 	MemoryUsage   uint64        `json:"memory_usage"` // in bytes
 	MemoryPercent float64       `json:"memory_percent"`
 	LastUpdated   time.Time     `json:"last_updated"`
+	Type          ProcessType   `json:"type"`
+	ContainerID   string        `json:"container_id,omitempty"` // Docker container ID
+	Image         string        `json:"image,omitempty"`        // Docker image name
 }
 
 // Store manages persistent process information

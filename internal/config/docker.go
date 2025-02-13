@@ -24,7 +24,7 @@ type HealthCheckConfig struct {
 // GetDefaultHealthCheck returns a default health check configuration for a service
 func GetDefaultHealthCheck(serviceType string) *HealthCheckConfig {
 	switch serviceType {
-	case "postgres", "postgresql":
+	case "postgresql":
 		return &HealthCheckConfig{
 			Command:     []string{"pg_isready"},
 			Interval:    "10s",
@@ -56,7 +56,7 @@ func GetDefaultHealthCheck(serviceType string) *HealthCheckConfig {
 // GetDefaultDockerConfig returns a default Docker configuration for a service type
 func GetDefaultDockerConfig(serviceType string) *DockerServiceConfig {
 	switch serviceType {
-	case "postgres", "postgresql":
+	case "postgresql":
 		return &DockerServiceConfig{
 			Type:  "docker",
 			Image: "postgres:15",
@@ -68,7 +68,7 @@ func GetDefaultDockerConfig(serviceType string) *DockerServiceConfig {
 			Volumes: map[string]string{
 				"data": "/var/lib/postgresql/data",
 			},
-			HealthCheck: GetDefaultHealthCheck("postgres"),
+			HealthCheck: GetDefaultHealthCheck("postgresql"),
 		}
 	case "redis":
 		return &DockerServiceConfig{

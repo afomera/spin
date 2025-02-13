@@ -109,15 +109,9 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Add default Docker configurations for required services that aren't explicitly configured
 	for _, serviceName := range config.Dependencies.Services {
-		// Handle postgresql -> postgres mapping
-		lookupName := serviceName
-		if serviceName == "postgresql" {
-			lookupName = "postgres"
-		}
-
-		if _, exists := config.Services[lookupName]; !exists {
+		if _, exists := config.Services[serviceName]; !exists {
 			if dockerCfg := GetDefaultDockerConfig(serviceName); dockerCfg != nil {
-				config.Services[lookupName] = dockerCfg
+				config.Services[serviceName] = dockerCfg
 			}
 		}
 	}

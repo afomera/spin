@@ -1,6 +1,8 @@
 package process
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -16,8 +18,14 @@ import (
 
 	"github.com/afomera/spin/internal/config"
 	"github.com/afomera/spin/internal/logger"
+	"github.com/afomera/spin/internal/service/docker"
+	"github.com/afomera/spin/internal/tracker"
+	"github.com/docker/docker/api/types"
 	psutil "github.com/shirou/gopsutil/v3/process"
 )
+
+// Verify that Manager implements ProcessTracker interface
+var _ tracker.ProcessTracker = (*Manager)(nil)
 
 type ProcessStatus string
 
@@ -42,6 +50,21 @@ type Process struct {
 	MemoryUsage   uint64 // in bytes
 	MemoryPercent float64
 	LastUpdated   time.Time
+	Type          ProcessType
+	ContainerID   string // Docker container ID
+	Image         string // Docker image name
+}
+
+// NewDockerProcess creates a new Docker process
+func NewDockerProcess(name string, containerID string, image string) *Process {
+	return &Process{
+		Name:        name,
+		Status:      StatusRunning,
+		Type:        ProcessTypeDocker,
+		ContainerID: containerID,
+		Image:       image,
+		LastUpdated: time.Now(),
+	}
 }
 
 // Manager handles multiple processes
@@ -69,6 +92,9 @@ func GetManager(cfg *config.Config) *Manager {
 		}
 		// Create store after manager is initialized
 		instance.store = NewStore(instance)
+
+		// Register as the Docker process tracker
+		tracker.SetTracker(instance)
 	})
 	return instance
 }
@@ -492,6 +518,10 @@ func (m *Manager) GetProcessStatus(name string) (ProcessStatus, error) {
 
 // updateResourceUsage updates CPU and memory usage for a process
 func (m *Manager) updateResourceUsage(p *Process) error {
+	if p.Type == ProcessTypeDocker {
+		return m.updateDockerResourceUsage(p)
+	}
+
 	if p.Command == nil || p.Command.Process == nil {
 		return fmt.Errorf("process not initialized")
 	}
@@ -534,6 +564,74 @@ func (m *Manager) updateResourceUsage(p *Process) error {
 		MemoryUsage:   p.MemoryUsage,
 		MemoryPercent: p.MemoryPercent,
 		LastUpdated:   p.LastUpdated,
+		Type:          p.Type,
+		ContainerID:   p.ContainerID,
+		Image:         p.Image,
+	}
+	return m.store.SaveProcess(info)
+}
+
+// updateDockerResourceUsage updates resource usage for a Docker container
+func (m *Manager) updateDockerResourceUsage(p *Process) error {
+	dockerManager, err := docker.NewServiceManager("")
+	if err != nil {
+		return fmt.Errorf("failed to create Docker manager: %w", err)
+	}
+	defer dockerManager.Client().Close()
+
+	// Get container stats directly from Docker client
+	stats, err := dockerManager.Client().ContainerStats(context.Background(), p.ContainerID, false)
+	if err != nil {
+		return fmt.Errorf("failed to get Docker stats: %w", err)
+	}
+	defer stats.Body.Close()
+
+	// Update container status
+	container, err := dockerManager.Client().ContainerInspect(context.Background(), p.ContainerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// Update status based on container state
+	if container.State.Running {
+		p.Status = StatusRunning
+	} else if container.State.Dead || container.State.ExitCode != 0 {
+		p.Status = StatusError
+	} else {
+		p.Status = StatusStopped
+	}
+
+	// Update resource usage from Docker stats
+	var v types.StatsJSON
+	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+		return fmt.Errorf("failed to decode stats: %w", err)
+	}
+
+	// Calculate CPU percentage
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+	cpuPercent := 0.0
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+	}
+
+	// Update process stats
+	p.CPUPercent = cpuPercent
+	p.MemoryUsage = v.MemoryStats.Usage
+	p.MemoryPercent = float64(v.MemoryStats.Usage) / float64(v.MemoryStats.Limit) * 100
+	p.LastUpdated = time.Now()
+
+	// Update store
+	info := ProcessInfo{
+		Name:          p.Name,
+		Status:        p.Status,
+		CPUPercent:    p.CPUPercent,
+		MemoryUsage:   p.MemoryUsage,
+		MemoryPercent: p.MemoryPercent,
+		LastUpdated:   p.LastUpdated,
+		Type:          ProcessTypeDocker,
+		ContainerID:   p.ContainerID,
+		Image:         p.Image,
 	}
 	return m.store.SaveProcess(info)
 }
@@ -568,4 +666,70 @@ func (m *Manager) ListProcesses() []*Process {
 // WaitForAll waits for all processes to complete
 func (m *Manager) WaitForAll() {
 	m.wg.Wait()
+}
+
+// StartDockerProcess creates and tracks a Docker container as a process
+func (m *Manager) StartDockerProcess(name string, containerID string, image string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.debugf("Debug: Starting Docker process %s (container: %s)\n", name, containerID)
+
+	if _, exists := m.processes[name]; exists {
+		return fmt.Errorf("process %s is already running", name)
+	}
+
+	// Create a new Docker process
+	process := NewDockerProcess(name, containerID, image)
+
+	// Get spin directory for logs
+	spinDir, err := getSpinDir()
+	if err != nil {
+		return fmt.Errorf("failed to create spin directory: %w", err)
+	}
+
+	// Create output directory
+	outputDir := filepath.Join(spinDir, "output")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Set up output file
+	outputFile := filepath.Join(outputDir, fmt.Sprintf("%s.log", name))
+	f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+
+	// Create output writer
+	var outputWriter io.Writer
+	if m.quiet {
+		outputWriter = f
+	} else {
+		prefixedWriter := logger.CreatePrefixedWriter(name)
+		outputWriter = io.MultiWriter(f, prefixedWriter)
+	}
+
+	process.OutputFile = outputFile
+	process.OutputWriter = outputWriter
+
+	// Add to manager's processes map
+	m.processes[name] = process
+
+	// Save process information to store
+	info := ProcessInfo{
+		Name:        name,
+		Status:      StatusRunning,
+		Type:        ProcessTypeDocker,
+		ContainerID: containerID,
+		Image:       image,
+		LastUpdated: time.Now(),
+	}
+
+	m.debugf("Debug: Saving Docker process %s to store\n", name)
+	if err := m.store.SaveProcess(info); err != nil {
+		m.debugf("Warning: Failed to save process info: %v\n", err)
+	}
+
+	return nil
 }

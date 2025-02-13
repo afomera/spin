@@ -170,7 +170,7 @@ func NewSQLite3Service() *SQLite3Service {
 
 // GetAvailableServices returns a list of supported service types
 func GetAvailableServices() []string {
-	return []string{"redis", "postgres", "postgresql", "sqlite3"}
+	return []string{"redis", "postgresql", "sqlite3"}
 }
 
 // DockerService represents a Docker-based service
@@ -224,7 +224,7 @@ func CreateService(name string, cfg *config.Config) (Service, error) {
 	switch strings.ToLower(name) {
 	case "redis":
 		return NewRedisService(), nil
-	case "postgresql", "postgres":
+	case "postgresql":
 		return NewPostgresService(), nil
 	case "sqlite3":
 		return NewSQLite3Service(), nil
