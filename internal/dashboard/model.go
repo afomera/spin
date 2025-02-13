@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -382,7 +383,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		m.LastUpdate = time.Time(msg)
-		m.Processes = m.Manager.ListProcesses()
+		processes := m.Manager.ListProcesses()
+
+		// Sort processes by name
+		sort.Slice(processes, func(i, j int) bool {
+			return processes[i].Name < processes[j].Name
+		})
+
+		m.Processes = processes
 		m.updateProcessView()
 		if m.ViewMode == DetailsMode {
 			m.updateDetailsView()

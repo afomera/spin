@@ -127,7 +127,13 @@ Example:
 
 		fmt.Printf("%sStarting development environment for %s%s%s...%s\n", lg.Blue, lg.Cyan, cfg.Name, lg.Blue, lg.Reset)
 
-		// Start the process
+		// Start the web process
+		webCmd := command
+		if len(cmdArgs) > 0 {
+			webCmd += " " + strings.Join(cmdArgs, " ")
+		}
+		fmt.Printf("%s-> Starting web: %s%s\n", lg.Blue, webCmd, lg.Reset)
+
 		if err := processManager.StartProcess("web", command, cmdArgs, env, appPath); err != nil {
 			fmt.Printf("%sError starting development server: %v%s\n", lg.Red, err, lg.Reset)
 			os.Exit(1)
@@ -136,6 +142,8 @@ Example:
 		// If we have a Procfile.dev, start those processes too
 		procfilePath := filepath.Join(appPath, "Procfile.dev")
 		if _, err := os.Stat(procfilePath); err == nil {
+			fmt.Printf("\n%sDetected Procfile.dev%s\n", lg.Blue, lg.Reset)
+
 			// Parse Procfile.dev
 			procfile, err := os.Open(procfilePath)
 			if err != nil {
@@ -164,17 +172,38 @@ Example:
 					continue
 				}
 
-				// Split the command into command and arguments
-				cmdParts := strings.Fields(procCommand)
-				if len(cmdParts) == 0 {
-					continue
+				// Special handling for npm-related commands to preserve colons and other special characters
+				var command string
+				var args []string
+
+				if strings.HasPrefix(procCommand, "yarn ") ||
+					strings.HasPrefix(procCommand, "npm ") ||
+					strings.HasPrefix(procCommand, "npx ") {
+					// For npm-related commands, keep the command intact
+					parts := strings.SplitN(procCommand, " ", 2)
+					command = parts[0] // yarn, npm, or npx
+					if len(parts) > 1 {
+						// Keep the rest as a single argument to preserve colons and other special characters
+						args = []string{parts[1]}
+					}
+				} else {
+					// For other commands, split normally
+					cmdParts := strings.Fields(procCommand)
+					if len(cmdParts) == 0 {
+						continue
+					}
+					command = cmdParts[0]
+					if len(cmdParts) > 1 {
+						args = cmdParts[1:]
+					}
 				}
 
-				command := cmdParts[0]
-				var args []string
-				if len(cmdParts) > 1 {
-					args = cmdParts[1:]
+				// Log the process we're about to start
+				processCmd := command
+				if len(args) > 0 {
+					processCmd += " " + strings.Join(args, " ")
 				}
+				fmt.Printf("%s-> Starting %s: %s%s\n", lg.Blue, procName, processCmd, lg.Reset)
 
 				if err := processManager.StartProcess(procName, command, args, env, appPath); err != nil {
 					fmt.Printf("%sError starting process %s: %v%s\n", lg.Red, procName, err, lg.Reset)
