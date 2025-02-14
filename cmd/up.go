@@ -179,19 +179,22 @@ Example:
 			os.Exit(1)
 		}
 
-		fmt.Printf("\n%sPress Ctrl+C to stop all processes%s\n", lg.Yellow, lg.Reset)
+		fmt.Printf("%sAll processes started successfully!%s\n", lg.Green, lg.Reset)
+		// BELOW THIS LINE IS COMMENTED OUT FOR NOW
+		// fmt.Printf("\n%sPress Ctrl+C to stop all processes%s\n", lg.Yellow, lg.Reset)
 
 		// Handle signals for graceful shutdown
-		processManager.HandleSignals()
+		// processManager.HandleSignals()
 
 		// Wait for all processes to complete
-		processManager.WaitForAll()
+		// processManager.WaitForAll()
 
 		// Stop services if they were started by us
-		if len(cfg.Dependencies.Services) > 0 {
-			fmt.Printf("%sStopping services...%s\n", lg.Blue, lg.Reset)
-			svcManager.StopAll()
-		}
+		// Comment this out for now
+		// if len(cfg.Dependencies.Services) > 0 {
+		// 	fmt.Printf("%sStopping services...%s\n", lg.Blue, lg.Reset)
+		// 	svcManager.StopAll()
+		// }
 	},
 }
 
