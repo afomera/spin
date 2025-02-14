@@ -1,11 +1,9 @@
 package logger
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 )
 
@@ -19,6 +17,38 @@ const (
 	Purple = "\033[35m"
 	Cyan   = "\033[36m"
 )
+
+var (
+	verbose bool
+	mu      sync.Mutex
+)
+
+// SetVerbose enables or disables verbose output
+func SetVerbose(v bool) {
+	mu.Lock()
+	verbose = v
+	mu.Unlock()
+}
+
+// IsVerbose returns whether verbose output is enabled
+func IsVerbose() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return verbose
+}
+
+// Debug writes a debug message if verbose mode is enabled
+func Debug(format string, args ...interface{}) {
+	if IsVerbose() {
+		prefix := fmt.Sprintf("%s[debug]%s ", Yellow, Reset)
+		fmt.Printf(prefix+format, args...)
+	}
+}
+
+// Debugf is an alias for Debug
+func Debugf(format string, args ...interface{}) {
+	Debug(format, args...)
+}
 
 // PrefixedWriter wraps an io.Writer to prefix each line with a colored tag
 type PrefixedWriter struct {
@@ -42,78 +72,12 @@ func (w *PrefixedWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	scanner := bufio.NewScanner(bufio.NewReader(&prefixReader{data: p}))
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Trim trailing spaces but preserve empty lines
-		trimmed := strings.TrimRight(line, " \t")
-		prefix := fmt.Sprintf("%s[%s]%s ", w.color, w.name, Reset)
-		if _, err := fmt.Fprintf(w.writer, "%s%s\n", prefix, trimmed); err != nil {
-			return 0, err
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	prefix := fmt.Sprintf("%s[%s]%s ", w.color, w.name, Reset)
+	if _, err := fmt.Fprintf(w.writer, prefix+"%s", string(p)); err != nil {
 		return 0, err
 	}
 
 	return len(p), nil
-}
-
-// prefixReader helps handle partial lines and preserves all characters
-type prefixReader struct {
-	data []byte
-	pos  int
-	buf  []byte
-}
-
-func (r *prefixReader) Read(p []byte) (n int, err error) {
-	if len(r.buf) > 0 {
-		// First return any buffered data
-		n = copy(p, r.buf)
-		r.buf = r.buf[n:]
-		return n, nil
-	}
-
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-
-	// Find next newline
-	start := r.pos
-	end := r.pos
-	for end < len(r.data) && r.data[end] != '\n' {
-		end++
-	}
-
-	// Include the newline if found
-	if end < len(r.data) {
-		end++
-	}
-
-	// Trim trailing whitespace but keep newline
-	trimEnd := end
-	if end > start && r.data[end-1] == '\n' {
-		trimEnd--
-	}
-	for trimEnd > start && (r.data[trimEnd-1] == ' ' || r.data[trimEnd-1] == '\t') {
-		trimEnd--
-	}
-	if end > start && r.data[end-1] == '\n' {
-		trimEnd++
-	}
-
-	// Copy what we can to p
-	n = copy(p, r.data[start:trimEnd])
-
-	// If we couldn't copy everything, buffer the rest
-	if n < trimEnd-start {
-		r.buf = make([]byte, trimEnd-start-n)
-		copy(r.buf, r.data[start+n:trimEnd])
-	}
-
-	r.pos = end
-	return n, nil
 }
 
 // GetColorForService returns a consistent color for a service name

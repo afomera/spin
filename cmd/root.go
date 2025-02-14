@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/afomera/spin/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -39,6 +40,17 @@ Example usage:
 		// If no subcommand is provided, print help
 		cmd.Help()
 	},
+}
+
+func init() {
+	var verbose bool
+	// Add persistent flags that will be available to all commands
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose debug output")
+
+	// Update logger's verbose setting when the flag changes
+	cobra.OnInitialize(func() {
+		logger.SetVerbose(verbose)
+	})
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

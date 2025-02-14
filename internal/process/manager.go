@@ -104,10 +104,10 @@ func (m *Manager) SetQuiet(quiet bool) {
 	m.quiet = quiet
 }
 
-// debugf prints debug messages if not in quiet mode
+// debugf prints debug messages using the logger
 func (m *Manager) debugf(format string, args ...interface{}) {
 	if !m.quiet {
-		fmt.Printf(format, args...)
+		logger.Debugf(format, args...)
 	}
 }
 
