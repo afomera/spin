@@ -9,6 +9,11 @@ import (
 	"github.com/afomera/spin/internal/detector"
 )
 
+// ProcessConfig holds process-related configuration
+type ProcessConfig struct {
+	Procfile string `json:"procfile"`
+}
+
 // Config represents the structure of spin.config.json
 type Config struct {
 	Name         string                          `json:"name"`
@@ -20,6 +25,15 @@ type Config struct {
 	Env          map[string]EnvMap               `json:"env"`
 	Rails        *RailsConfig                    `json:"rails,omitempty"`
 	Services     map[string]*DockerServiceConfig `json:"services,omitempty"`
+	Processes    *ProcessConfig                  `json:"processes,omitempty"`
+}
+
+// GetProcfilePath returns the configured Procfile path or the default (Procfile.dev)
+func (c *Config) GetProcfilePath() string {
+	if c.Processes != nil && c.Processes.Procfile != "" {
+		return c.Processes.Procfile
+	}
+	return "Procfile.dev"
 }
 
 // RailsConfig holds Rails-specific configuration
@@ -161,6 +175,9 @@ func DetectProjectType(path string) (*Config, error) {
 				"development": {},
 			},
 			Services: make(map[string]*DockerServiceConfig),
+			Processes: &ProcessConfig{
+				Procfile: "Procfile.dev",
+			},
 		}
 
 		// Configure Docker services based on detected requirements

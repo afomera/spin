@@ -281,41 +281,21 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 
 	var sendCmd *exec.Cmd
 
-	// Special handling for npm-related commands
-	if command == "yarn" || command == "npm" || command == "npx" {
-		// For npm-related commands, send the full command at once
-		fullCmd := command
-		if len(args) > 0 {
-			fullCmd += " " + args[0] // args[0] contains the full argument string
-		}
-		sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, fullCmd)
-		if err := sendCmd.Run(); err != nil {
-			f.Close()
-			return fmt.Errorf("failed to send command to tmux session: %w", err)
-		}
-
-		// Send Space and Enter for npm commands
-		sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, "Enter")
-	} else {
-		// For other commands, send each part separately to preserve spaces
-		sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, command, "Space")
-		if err := sendCmd.Run(); err != nil {
-			f.Close()
-			return fmt.Errorf("failed to send command to tmux session: %w", err)
-		}
-
-		// Send each argument separately with spaces
-		for _, arg := range args {
-			sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, arg, "Space")
-			if err := sendCmd.Run(); err != nil {
-				f.Close()
-				return fmt.Errorf("failed to send argument to tmux session: %w", err)
-			}
-		}
-
-		// Send Enter key for non-npm commands
-		sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, "Enter")
+	// Combine command and args into a single string
+	fullCmd := command
+	if len(args) > 0 {
+		fullCmd += " " + strings.Join(args, " ")
 	}
+
+	// Send the full command at once
+	sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, fullCmd)
+	if err := sendCmd.Run(); err != nil {
+		f.Close()
+		return fmt.Errorf("failed to send command to tmux session: %w", err)
+	}
+
+	// Send Enter key
+	sendCmd = exec.Command("tmux", "-f", configPath, "send-keys", "-t", sessionName, "Enter")
 
 	// Execute the final Enter command
 	if err := sendCmd.Run(); err != nil {

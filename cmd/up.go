@@ -65,37 +65,11 @@ Example:
 			}
 		}
 
-		// Check if start script is defined
-		if cfg.Scripts.Start == "" {
-			fmt.Printf("%sError: No start script defined in spin.config.json%s\n", lg.Red, lg.Reset)
-			fmt.Printf("%sAdd a start script to your configuration:%s\n", lg.Yellow, lg.Reset)
-			fmt.Println(`{
-		"scripts": {
-			 "start": "your-start-command"
-		}
-}`)
-			os.Exit(1)
-		}
-
 		// Set up environment variables
 		envVars := cfg.GetEnvVars("development")
 		env := os.Environ() // Get existing environment
 		for key, value := range envVars {
 			env = append(env, fmt.Sprintf("%s=%s", key, value))
-		}
-
-		// Create command from start script
-		// Split the command string into command and arguments
-		parts := strings.Fields(cfg.Scripts.Start)
-		if len(parts) == 0 {
-			fmt.Printf("%sError: Invalid start script%s\n", lg.Red, lg.Reset)
-			os.Exit(1)
-		}
-
-		command := parts[0]
-		var cmdArgs []string
-		if len(parts) > 1 {
-			cmdArgs = parts[1:]
 		}
 
 		// Get process manager
@@ -127,89 +101,82 @@ Example:
 
 		fmt.Printf("%sStarting development environment for %s%s%s...%s\n", lg.Blue, lg.Cyan, cfg.Name, lg.Blue, lg.Reset)
 
-		// Start the web process
-		webCmd := command
-		if len(cmdArgs) > 0 {
-			webCmd += " " + strings.Join(cmdArgs, " ")
-		}
-		fmt.Printf("%s-> Starting web: %s%s\n", lg.Blue, webCmd, lg.Reset)
+		// Get the Procfile path from config
+		procfilePath := filepath.Join(appPath, cfg.GetProcfilePath())
 
-		if err := processManager.StartProcess("web", command, cmdArgs, env, appPath); err != nil {
-			fmt.Printf("%sError starting development server: %v%s\n", lg.Red, err, lg.Reset)
+		// Parse and start processes from Procfile
+		procfile, err := os.Open(procfilePath)
+		if err != nil {
+			fmt.Printf("%sError: Could not find %s: %v%s\n", lg.Red, cfg.GetProcfilePath(), err, lg.Reset)
+			fmt.Printf("%sEnsure %s exists or configure a custom path in spin.config.json:%s\n", lg.Yellow, cfg.GetProcfilePath(), lg.Reset)
+			fmt.Println(`{
+		"processes": {
+		  "procfile": "your-procfile-name"
+		}
+}`)
 			os.Exit(1)
 		}
+		defer procfile.Close()
 
-		// If we have a Procfile.dev, start those processes too
-		procfilePath := filepath.Join(appPath, "Procfile.dev")
-		if _, err := os.Stat(procfilePath); err == nil {
-			fmt.Printf("\n%sDetected Procfile.dev%s\n", lg.Blue, lg.Reset)
+		fmt.Printf("\n%sStarting processes from %s%s\n", lg.Blue, cfg.GetProcfilePath(), lg.Reset)
 
-			// Parse Procfile.dev
-			procfile, err := os.Open(procfilePath)
-			if err != nil {
-				fmt.Printf("%sError reading Procfile.dev: %v%s\n", lg.Red, err, lg.Reset)
+		scanner := bufio.NewScanner(procfile)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			procName := strings.TrimSpace(parts[0])
+			procCommand := strings.TrimSpace(parts[1])
+
+			// Special handling for npm-related commands to preserve colons and other special characters
+			var command string
+			var args []string
+
+			if strings.HasPrefix(procCommand, "yarn ") ||
+				strings.HasPrefix(procCommand, "npm ") ||
+				strings.HasPrefix(procCommand, "npx ") {
+				// For npm-related commands, keep the command intact
+				parts := strings.SplitN(procCommand, " ", 2)
+				command = parts[0] // yarn, npm, or npx
+				if len(parts) > 1 {
+					// Keep the rest as a single argument to preserve colons and other special characters
+					args = []string{parts[1]}
+				}
+			} else {
+				// For other commands, split normally
+				cmdParts := strings.Fields(procCommand)
+				if len(cmdParts) == 0 {
+					continue
+				}
+				command = cmdParts[0]
+				if len(cmdParts) > 1 {
+					args = cmdParts[1:]
+				}
+			}
+
+			// Log the process we're about to start
+			processCmd := command
+			if len(args) > 0 {
+				processCmd += " " + strings.Join(args, " ")
+			}
+			fmt.Printf("%s-> Starting %s: %s%s\n", lg.Blue, procName, processCmd, lg.Reset)
+
+			if err := processManager.StartProcess(procName, command, args, env, appPath); err != nil {
+				fmt.Printf("%sError starting process %s: %v%s\n", lg.Red, procName, err, lg.Reset)
 				os.Exit(1)
 			}
-			defer procfile.Close()
+		}
 
-			scanner := bufio.NewScanner(procfile)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
-				}
-
-				parts := strings.SplitN(line, ":", 2)
-				if len(parts) != 2 {
-					continue
-				}
-
-				procName := strings.TrimSpace(parts[0])
-				procCommand := strings.TrimSpace(parts[1])
-
-				// Skip web process as it's already started
-				if procName == "web" {
-					continue
-				}
-
-				// Special handling for npm-related commands to preserve colons and other special characters
-				var command string
-				var args []string
-
-				if strings.HasPrefix(procCommand, "yarn ") ||
-					strings.HasPrefix(procCommand, "npm ") ||
-					strings.HasPrefix(procCommand, "npx ") {
-					// For npm-related commands, keep the command intact
-					parts := strings.SplitN(procCommand, " ", 2)
-					command = parts[0] // yarn, npm, or npx
-					if len(parts) > 1 {
-						// Keep the rest as a single argument to preserve colons and other special characters
-						args = []string{parts[1]}
-					}
-				} else {
-					// For other commands, split normally
-					cmdParts := strings.Fields(procCommand)
-					if len(cmdParts) == 0 {
-						continue
-					}
-					command = cmdParts[0]
-					if len(cmdParts) > 1 {
-						args = cmdParts[1:]
-					}
-				}
-
-				// Log the process we're about to start
-				processCmd := command
-				if len(args) > 0 {
-					processCmd += " " + strings.Join(args, " ")
-				}
-				fmt.Printf("%s-> Starting %s: %s%s\n", lg.Blue, procName, processCmd, lg.Reset)
-
-				if err := processManager.StartProcess(procName, command, args, env, appPath); err != nil {
-					fmt.Printf("%sError starting process %s: %v%s\n", lg.Red, procName, err, lg.Reset)
-					os.Exit(1)
-				}
-			}
+		if err := scanner.Err(); err != nil {
+			fmt.Printf("%sError reading %s: %v%s\n", lg.Red, cfg.GetProcfilePath(), err, lg.Reset)
+			os.Exit(1)
 		}
 
 		fmt.Printf("\n%sPress Ctrl+C to stop all processes%s\n", lg.Yellow, lg.Reset)

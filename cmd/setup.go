@@ -132,6 +132,9 @@ Example:
 				Env: map[string]config.EnvMap{
 					"development": {},
 				},
+				Processes: &config.ProcessConfig{
+					Procfile: "Procfile.dev",
+				},
 			}
 		}
 
