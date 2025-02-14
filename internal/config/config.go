@@ -149,9 +149,22 @@ func (r *Repository) GetFullName() string {
 	return r.Organization + "/" + r.Name
 }
 
-// GetCloneURL returns the HTTPS clone URL for the repository
-func (r *Repository) GetCloneURL() string {
+// GetHTTPSCloneURL returns the HTTPS clone URL for the repository
+func (r *Repository) GetHTTPSCloneURL() string {
 	return fmt.Sprintf("https://github.com/%s/%s.git", r.Organization, r.Name)
+}
+
+// GetSSHCloneURL returns the SSH clone URL for the repository
+func (r *Repository) GetSSHCloneURL() string {
+	return fmt.Sprintf("git@github.com:%s/%s.git", r.Organization, r.Name)
+}
+
+// GetCloneURL returns the preferred clone URL based on the user's configuration
+func (r *Repository) GetCloneURL(preferSSH bool) string {
+	if preferSSH {
+		return r.GetSSHCloneURL()
+	}
+	return r.GetHTTPSCloneURL()
 }
 
 // ParseRepositoryString parses a repository string in the format "org/name"

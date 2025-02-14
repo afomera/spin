@@ -10,12 +10,14 @@ import (
 // Config represents user-level configuration
 type Config struct {
 	DefaultOrganization string `json:"defaultOrganization"`
+	PreferSSH           bool   `json:"preferSSH"` // Whether to prefer SSH URLs for git operations
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		DefaultOrganization: "", // Empty by default, requiring user to set it
+		DefaultOrganization: "",   // Empty by default, requiring user to set it
+		PreferSSH:           true, // Default to SSH as it's more secure
 	}
 }
 
