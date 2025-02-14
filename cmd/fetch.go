@@ -95,10 +95,19 @@ Example:
 					Services: []string{},
 					Tools:    []string{},
 				},
-				Scripts: config.Scripts{
-					Setup: "",
-					Start: "",
-					Test:  "",
+				Scripts: map[string]config.Script{
+					"setup": {
+						Command:     "echo 'Add your setup command here'",
+						Description: "Set up the project",
+					},
+					"test": {
+						Command:     "echo 'Add your test command here'",
+						Description: "Run tests",
+					},
+					"server": {
+						Command:     "echo 'Add your server command here'",
+						Description: "Start the development server",
+					},
 				},
 				Env: map[string]config.EnvMap{
 					"development": {},
@@ -132,7 +141,8 @@ Example:
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. cd", appName)
 		fmt.Println("  2. Review spin.config.json")
-		fmt.Println("  3. Run 'spin up' to start development")
+		fmt.Println("  3. Run 'spin setup' to install dependencies")
+		fmt.Println("  4. Run 'spin up' to start development")
 	},
 }
 

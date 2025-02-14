@@ -57,14 +57,14 @@ Attach to a process in debug mode (useful for interactive debugging sessions).
 spin debug web    # Debug web process
 ```
 
-### spin setup [app-name]
+### spin init [app-name]
 
 Initialize a new application with Spin configuration.
 
 ```bash
-spin setup myapp              # Setup new app in myapp directory
-spin setup myapp --repo=org/name  # Setup with specific repository
-spin setup . --force         # Setup in current directory
+spin init myapp              # Initialize new app in myapp directory
+spin init myapp --repo=org/name  # Initialize with specific repository
+spin init . --force         # Initialize in current directory
 ```
 
 Flags:
@@ -72,12 +72,46 @@ Flags:
 - `--repo`: Specify repository in format organization/name
 - `--force`: Force overwrite existing configuration
 
-The setup command will:
+The init command will:
 
 - Create project directory (if needed)
 - Initialize spin.config.json
 - Detect project type and configure accordingly (e.g., Rails applications)
 - Set up repository information
+
+### spin scripts
+
+Manage and run scripts defined in your configuration.
+
+```bash
+# List available scripts
+spin scripts list           # Show all available scripts
+
+# Run a script
+spin scripts run setup     # Run the setup script
+spin scripts run test      # Run the test script
+
+# Run with environment variables
+spin scripts run test --env=NODE_ENV=test --env=DEBUG=true
+
+# Run in specific directory
+spin scripts run build --workdir=/path/to/dir
+
+# Skip hook errors
+spin scripts run deploy --skip-hook-error
+```
+
+Flags:
+
+- `--env`: Set environment variables (can be used multiple times)
+- `--workdir`: Set working directory for script execution
+- `--skip-hook-error`: Continue even if hooks fail
+
+Common scripts also have shorthand commands:
+
+- `spin setup` - Run setup script
+- `spin test` - Run test script
+- `spin server` - Start development server
 
 ### spin config
 
@@ -152,9 +186,43 @@ The main configuration file for your application. Here's an example of a Rails a
     "tools": ["ruby", "bundler"]
   },
   "scripts": {
-    "setup": "bundle install && rails db:setup",
-    "start": "rails server",
-    "test": "rails test"
+    "setup": {
+      "command": "bundle install",
+      "description": "Install dependencies",
+      "hooks": {
+        "pre": {
+          "command": "asdf install ruby",
+          "description": "Install Ruby version",
+          "env": {
+            "RUBY_VERSION": "3.2.2"
+          }
+        },
+        "post": {
+          "command": "bundle exec rails db:setup",
+          "description": "Set up database"
+        }
+      }
+    },
+    "test": {
+      "command": "bundle exec rspec",
+      "description": "Run tests",
+      "hooks": {
+        "pre": {
+          "command": "bundle exec rails db:test:prepare",
+          "description": "Prepare test database"
+        }
+      }
+    },
+    "server": {
+      "command": "bundle exec rails server",
+      "description": "Start Rails server",
+      "hooks": {
+        "pre": {
+          "command": "bundle exec rails db:prepare",
+          "description": "Prepare database"
+        }
+      }
+    }
   },
   "env": {
     "development": {}
@@ -175,7 +243,7 @@ The main configuration file for your application. Here's an example of a Rails a
     "services": {
       "postgres": {
         "type": "docker",
-        "image": "postgres:15",
+        "image": "postgres:17",
         "port": 5432,
         "environment": {
           "POSTGRES_USER": "postgres",
@@ -238,10 +306,11 @@ Each process runs in its own tmux session, with logs stored in `~/.spin/output/`
 
 ## Development Workflow
 
-1. Create a `spin.config.json` in your project
+1. Initialize your project: `spin init myapp`
 2. Add a `Procfile.dev` if you need multiple processes
-3. Run `spin up` to start your development environment
-4. Use `spin ps` to monitor running processes
-5. View logs with `spin logs [process]`
-6. Debug with `spin debug [process]` when needed
-7. Stop everything with `spin down`
+3. Run `spin setup` to install dependencies
+4. Run `spin up` to start your development environment
+5. Use `spin ps` to monitor running processes
+6. View logs with `spin logs [process]`
+7. Debug with `spin debug [process]` when needed
+8. Stop everything with `spin down`

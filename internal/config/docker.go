@@ -59,11 +59,13 @@ func GetDefaultDockerConfig(serviceType string) *DockerServiceConfig {
 	case "postgresql":
 		return &DockerServiceConfig{
 			Type:  "docker",
-			Image: "postgres:15",
+			Image: "postgres:17",
 			Port:  5432,
 			Environment: map[string]string{
-				"POSTGRES_USER":     "postgres",
-				"POSTGRES_PASSWORD": "postgres",
+				"POSTGRES_USER":             "postgres",
+				"POSTGRES_PASSWORD":         "postgres",
+				"PGDATA":                    "/var/lib/postgresql/data/pgdata",
+				"POSTGRES_HOST_AUTH_METHOD": "trust",
 			},
 			Volumes: map[string]string{
 				"data": "/var/lib/postgresql/data",

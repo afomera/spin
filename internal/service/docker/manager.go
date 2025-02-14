@@ -328,7 +328,7 @@ func (m *ServiceManager) createContainer(name string, cfg *config.DockerServiceC
 	for name, target := range cfg.Volumes {
 		// For PostgreSQL, ensure we're using the correct data directory
 		mountTarget := target
-		if name == "data" && (cfg.Image == "postgres:15" || strings.HasPrefix(cfg.Image, "postgres:")) {
+		if name == "data" && strings.HasPrefix(cfg.Image, "postgres:") {
 			// Always use /var/lib/postgresql/data as the container target path
 			// This is required by the PostgreSQL image
 			mountTarget = "/var/lib/postgresql/data"
