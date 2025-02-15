@@ -318,7 +318,10 @@ func detectRubyVersion(path string) (string, error) {
 	// Try .ruby-version first
 	rubyVersionPath := filepath.Join(path, ".ruby-version")
 	if data, err := os.ReadFile(rubyVersionPath); err == nil {
-		return strings.TrimSpace(string(data)), nil
+		version := strings.TrimSpace(string(data))
+		// Remove any "ruby-" prefix
+		version = strings.TrimPrefix(version, "ruby-")
+		return version, nil
 	}
 
 	// Try Gemfile
