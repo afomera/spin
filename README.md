@@ -11,6 +11,7 @@ go install github.com/afomera/spin@latest
 ## Requirements
 
 - tmux (required for process management)
+- Docker Desktop (required for service management)
 
 ## Commands
 
