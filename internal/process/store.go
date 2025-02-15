@@ -21,6 +21,7 @@ const (
 // ProcessInfo stores serializable process information
 type ProcessInfo struct {
 	Name          string        `json:"name"`
+	AppName       string        `json:"app_name"`
 	Pid           int           `json:"pid"`
 	Status        ProcessStatus `json:"status"`
 	WorkDir       string        `json:"workdir"`
@@ -83,7 +84,9 @@ func (s *Store) SaveProcess(info ProcessInfo) error {
 		processes = make(map[string]ProcessInfo)
 	}
 
-	processes[info.Name] = info
+	// Use a combination of app name and process name as the key
+	key := fmt.Sprintf("%s-%s", SanitizeAppName(info.AppName), info.Name)
+	processes[key] = info
 
 	return s.saveProcesses(processes)
 }
@@ -100,7 +103,10 @@ func (s *Store) RemoveProcess(name string) error {
 		return err
 	}
 
-	delete(processes, name)
+	// Get the app name from the manager's config
+	appName := s.manager.config.Name
+	key := fmt.Sprintf("%s-%s", SanitizeAppName(appName), name)
+	delete(processes, key)
 	return s.saveProcesses(processes)
 }
 
@@ -117,7 +123,10 @@ func (s *Store) GetProcess(name string) (ProcessInfo, error) {
 		return ProcessInfo{}, err
 	}
 
-	info, exists := processes[name]
+	// Get the app name from the manager's config
+	appName := s.manager.config.Name
+	key := fmt.Sprintf("%s-%s", SanitizeAppName(appName), name)
+	info, exists := processes[key]
 	if !exists {
 		s.manager.debugf("Debug: Process %s not found in store\n", name)
 		return ProcessInfo{}, fmt.Errorf("process %s not found", name)
@@ -156,7 +165,8 @@ func (s *Store) ListProcesses() ([]ProcessInfo, error) {
 			}
 			s.manager.debugf("Debug: Process %s (PID: %d) not found, removing from store\n", info.Name, info.Pid)
 			// Process is not running, remove it from store
-			delete(processes, info.Name)
+			key := fmt.Sprintf("%s-%s", SanitizeAppName(info.AppName), info.Name)
+			delete(processes, key)
 		}
 	}
 

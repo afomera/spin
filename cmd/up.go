@@ -168,7 +168,7 @@ Example:
 			}
 			fmt.Printf("%s-> Starting %s: %s%s\n", lg.Blue, procName, processCmd, lg.Reset)
 
-			if err := processManager.StartProcess(procName, command, args, env, appPath); err != nil {
+			if err := processManager.StartProcess(cfg.Name, procName, command, args, env, appPath); err != nil {
 				fmt.Printf("%sError starting process %s: %v%s\n", lg.Red, procName, err, lg.Reset)
 				os.Exit(1)
 			}

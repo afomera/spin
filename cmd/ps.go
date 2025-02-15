@@ -5,6 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/afomera/spin/internal/config"
 	lg "github.com/afomera/spin/internal/logger"
 	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
@@ -39,13 +40,20 @@ Example:
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 
 		// Print headers with cyan color
-		fmt.Fprintf(w, "%sNAME\tSTATUS\tPID\tOUTPUT FILE\tINTERACTIVE\tERROR%s\n",
+		fmt.Fprintf(w, "%sAPP\tNAME\tSTATUS\tPID\tOUTPUT FILE\tINTERACTIVE\tERROR%s\n",
 			lg.Cyan,
 			lg.Reset,
 		)
 
+		// Load configuration
+		cfg, err := config.LoadConfig("spin.config.json")
+		if err != nil {
+			fmt.Printf("%sError loading configuration: %v%s\n", lg.Red, err, lg.Reset)
+			os.Exit(1)
+		}
+
 		// Get all processes from the manager
-		manager := process.GetManager(nil)
+		manager := process.GetManager(cfg)
 		processes := manager.ListProcesses()
 
 		if len(processes) == 0 {
@@ -67,11 +75,12 @@ Example:
 					pid = p.Command.Process.Pid
 				}
 
-				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
+					p.AppName,
 					p.Name,
 					colorizeStatus(p.Status),
 					pid,
-					p.OutputFile,
+					fmt.Sprintf("~/.spin/output/%s/%s.log", process.SanitizeAppName(p.AppName), p.Name),
 					interactive,
 					errStr,
 				)

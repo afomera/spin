@@ -129,7 +129,8 @@ func (m *Model) startLogReader(processName string) error {
 		return fmt.Errorf("error getting home directory: %v", err)
 	}
 
-	logPath := filepath.Join(home, ".spin", "output", fmt.Sprintf("%s.log", processName))
+	proc := m.Processes[m.Cursor]
+	logPath := filepath.Join(home, ".spin", "output", process.SanitizeAppName(proc.AppName), fmt.Sprintf("%s.log", processName))
 	file, err := os.Open(logPath)
 	if err != nil {
 		return fmt.Errorf("error opening log file: %v", err)
@@ -278,7 +279,7 @@ func (m *Model) handleRegularKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case key.Matches(msg, keys.Stop):
 		if len(m.Processes) > 0 && m.Cursor < len(m.Processes) {
 			proc := m.Processes[m.Cursor]
-			if err := m.Manager.StopProcess(proc.Name); err != nil {
+			if err := m.Manager.StopProcess(proc.AppName, proc.Name); err != nil {
 				m.ErrorMsg = fmt.Sprintf("Error stopping process: %v", err)
 			}
 		}
@@ -286,7 +287,7 @@ func (m *Model) handleRegularKeys(msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case key.Matches(msg, keys.Debug):
 		if len(m.Processes) > 0 && m.Cursor < len(m.Processes) {
 			proc := m.Processes[m.Cursor]
-			if err := m.Manager.DebugProcess(proc.Name); err != nil {
+			if err := m.Manager.DebugProcess(m.ProjectName, proc.Name); err != nil {
 				m.ErrorMsg = fmt.Sprintf("Error debugging process: %v", err)
 			}
 		}
@@ -493,8 +494,9 @@ func (m *Model) updateProcessView() {
 
 		// Format process line with resource usage
 		// First line with name and status
-		processLine := fmt.Sprintf("%s %s %s %s",
+		processLine := fmt.Sprintf("%s %s/%s %s %s",
 			cursor,
+			p.AppName,
 			p.Name,
 			statusEmoji,
 			statusStyle.Render(string(p.Status)),
@@ -533,7 +535,8 @@ func (m *Model) updateDetailsView() {
 
 		if m.ViewMode == DetailsMode {
 			b.WriteString(HeaderStyle.Render("Process Details") + "\n")
-			b.WriteString(fmt.Sprintf("Name: %s\n", SelectedProcessStyle.Render(proc.Name)))
+			b.WriteString(fmt.Sprintf("App: %s\n", SelectedProcessStyle.Render(proc.AppName)))
+			b.WriteString(fmt.Sprintf("Process: %s\n", SelectedProcessStyle.Render(proc.Name)))
 			b.WriteString(fmt.Sprintf("Status: %s\n", RunningStyle.Render(string(proc.Status))))
 			b.WriteString(fmt.Sprintf("Debug Mode: %s\n", StoppedStyle.Render("Disabled")))
 
@@ -547,13 +550,13 @@ func (m *Model) updateDetailsView() {
 
 			if proc.OutputFile != "" {
 				b.WriteString("\n" + HeaderStyle.Render("Log Information") + "\n")
-				b.WriteString(fmt.Sprintf("Log File: %s\n", proc.OutputFile))
+				b.WriteString(fmt.Sprintf("Log File: ~/.spin/output/%s/%s.log\n", process.SanitizeAppName(proc.AppName), proc.Name))
 			}
 
 			b.WriteString("\n" + InfoStyle.Render("Press 'l' to view logs"))
 		} else {
 			// Logs view
-			b.WriteString(HeaderStyle.Render(fmt.Sprintf("Logs: %s", proc.Name)) + "\n")
+			b.WriteString(HeaderStyle.Render(fmt.Sprintf("Logs: %s/%s", proc.AppName, proc.Name)) + "\n")
 			b.WriteString(InfoStyle.Render("Press 'l' to return to details"))
 			b.WriteString(InfoStyle.Render(" • "))
 			b.WriteString(InfoStyle.Render("Press '/' to search logs"))

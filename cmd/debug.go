@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/afomera/spin/internal/config"
 	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -24,12 +25,19 @@ Example:
 	Run: func(cmd *cobra.Command, args []string) {
 		processName := args[0]
 
+		// Load configuration
+		cfg, err := config.LoadConfig("spin.config.json")
+		if err != nil {
+			fmt.Printf("Error loading configuration: %v\n", err)
+			os.Exit(1)
+		}
+
 		fmt.Printf("Attaching to process '%s' in debug mode...\n", processName)
 		fmt.Println("Press Ctrl+C to send interrupt to the process")
 		fmt.Println("Press Ctrl+D to detach")
 
-		// Get the process manager instance
-		manager := process.GetManager(nil)
+		// Get the process manager instance with config
+		manager := process.GetManager(cfg)
 
 		// Get current terminal settings
 		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -40,7 +48,7 @@ Example:
 		defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 		// Try to attach to the process in debug mode
-		if err := manager.DebugProcess(processName); err != nil {
+		if err := manager.DebugProcess(cfg.Name, processName); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}

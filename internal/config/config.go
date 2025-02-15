@@ -237,10 +237,14 @@ func detectRailsConfig(path string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		Type: "rails",
+		Type:    "rails",
+		Version: "1.0.0",
 		Dependencies: Dependencies{
 			Services: []string{},
 			Tools:    []string{"ruby", "bundler"},
+		},
+		Processes: &ProcessConfig{
+			Procfile: "Procfile.dev",
 		},
 		Scripts: map[string]Script{
 			"setup": {

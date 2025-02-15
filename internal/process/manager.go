@@ -39,6 +39,7 @@ const (
 // Process represents a running process
 type Process struct {
 	Name          string
+	AppName       string // Name of the application this process belongs to
 	Command       *exec.Cmd
 	Status        ProcessStatus
 	Error         error
@@ -55,10 +56,27 @@ type Process struct {
 	Image         string // Docker image name
 }
 
+// SanitizeAppName replaces characters that could cause issues in tmux session names
+func SanitizeAppName(name string) string {
+	// Replace dots with dashes
+	name = strings.ReplaceAll(name, ".", "-")
+	// Replace any other problematic characters here if needed
+	return name
+}
+
 // NewDockerProcess creates a new Docker process
 func NewDockerProcess(name string, containerID string, image string) *Process {
+	// Extract app name from process name (format: appname-processname)
+	parts := strings.SplitN(name, "-", 2)
+	appName := SanitizeAppName(parts[0])
+	processName := name
+	if len(parts) > 1 {
+		processName = parts[1]
+	}
+
 	return &Process{
-		Name:        name,
+		Name:        processName,
+		AppName:     appName,
 		Status:      StatusRunning,
 		Type:        ProcessTypeDocker,
 		ContainerID: containerID,
@@ -139,8 +157,8 @@ func isDebugCommand(command string, args []string) bool {
 	return false
 }
 
-// findProcess tries to find a process by name in both memory and store
-func (m *Manager) findProcess(name string) (*Process, error) {
+// FindProcess tries to find a process by name in both memory and store
+func (m *Manager) FindProcess(name string) (*Process, error) {
 	// First check in-memory processes
 	m.mu.RLock()
 	process, exists := m.processes[name]
@@ -181,8 +199,8 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 		return nil, fmt.Errorf("failed to get spin directory: %w", err)
 	}
 
-	// Get tmux session name
-	sessionName := fmt.Sprintf("spin-%s", name)
+	// Get tmux session name with sanitized app name prefix
+	sessionName := fmt.Sprintf("spin-%s-%s", SanitizeAppName(info.AppName), name)
 
 	// Check if tmux session exists and get pane PID
 	listCmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_pid}")
@@ -208,6 +226,7 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 	// Create a new Process instance
 	process = &Process{
 		Name:          info.Name,
+		AppName:       info.AppName,
 		Command:       &exec.Cmd{Process: proc},
 		Status:        info.Status,
 		OutputFile:    filepath.Join(spinDir, "output", fmt.Sprintf("%s.log", name)),
@@ -228,7 +247,7 @@ func (m *Manager) findProcess(name string) (*Process, error) {
 }
 
 // StartProcess starts a new process with the given name and command
-func (m *Manager) StartProcess(name string, command string, args []string, env []string, workDir string) error {
+func (m *Manager) StartProcess(appName string, name string, command string, args []string, env []string, workDir string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -244,8 +263,8 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 		return fmt.Errorf("failed to create spin directory: %w", err)
 	}
 
-	// Create output directory
-	outputDir := filepath.Join(spinDir, "output")
+	// Create app-specific output directory
+	outputDir := filepath.Join(spinDir, "output", SanitizeAppName(appName))
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -270,8 +289,8 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	}
 	configPath := filepath.Join(home, ".spin", "tmux.conf")
 
-	// Create a new tmux session for the process
-	sessionName := fmt.Sprintf("spin-%s", name)
+	// Create a new tmux session for the process with sanitized app name prefix
+	sessionName := fmt.Sprintf("spin-%s-%s", SanitizeAppName(appName), name)
 	createCmd := exec.Command("tmux", "-f", configPath, "new-session", "-d", "-s", sessionName, "-c", workDir)
 	createCmd.Env = env
 	if err := createCmd.Run(); err != nil {
@@ -319,9 +338,9 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 		f.Close()
 		return fmt.Errorf("failed to pipe tmux output: %w", err)
 	}
-
 	process := &Process{
 		Name:          name,
+		AppName:       appName,
 		Command:       createCmd, // Store the tmux command
 		Status:        StatusRunning,
 		OutputFile:    outputFile,
@@ -355,6 +374,7 @@ func (m *Manager) StartProcess(name string, command string, args []string, env [
 	// Save process information to store
 	info := ProcessInfo{
 		Name:    name,
+		AppName: appName,
 		Pid:     pid,
 		Status:  StatusRunning,
 		WorkDir: workDir,
@@ -400,7 +420,7 @@ bind-key C-d detach-client
 }
 
 // DebugProcess attaches to a process in debug mode using tmux
-func (m *Manager) DebugProcess(name string) error {
+func (m *Manager) DebugProcess(appName string, name string) error {
 	// Ensure tmux is set up
 	if err := setupTmux(); err != nil {
 		return fmt.Errorf("failed to set up tmux: %w", err)
@@ -413,8 +433,8 @@ func (m *Manager) DebugProcess(name string) error {
 	}
 	configPath := filepath.Join(home, ".spin", "tmux.conf")
 
-	// Get the session name
-	sessionName := fmt.Sprintf("spin-%s", name)
+	// Get the session name with sanitized app name
+	sessionName := fmt.Sprintf("spin-%s-%s", SanitizeAppName(appName), name)
 
 	// Check if session exists
 	checkCmd := exec.Command("tmux", "has-session", "-t", sessionName)
@@ -442,8 +462,8 @@ func (m *Manager) DebugProcess(name string) error {
 }
 
 // StopProcess stops a specific process
-func (m *Manager) StopProcess(name string) error {
-	process, err := m.findProcess(name)
+func (m *Manager) StopProcess(appName string, name string) error {
+	process, err := m.FindProcess(name)
 	if err != nil {
 		return err
 	}
@@ -487,7 +507,7 @@ func (m *Manager) StopAll() {
 	m.mu.RUnlock()
 
 	for _, p := range processes {
-		_ = m.StopProcess(p.Name)
+		_ = m.StopProcess(p.AppName, p.Name)
 	}
 
 	m.wg.Wait()
@@ -508,8 +528,8 @@ func (m *Manager) HandleSignals() {
 }
 
 // GetProcessStatus returns the status of a specific process
-func (m *Manager) GetProcessStatus(name string) (ProcessStatus, error) {
-	process, err := m.findProcess(name)
+func (m *Manager) GetProcessStatus(appName string, name string) (ProcessStatus, error) {
+	process, err := m.FindProcess(name)
 	if err != nil {
 		return "", err
 	}
@@ -557,6 +577,7 @@ func (m *Manager) updateResourceUsage(p *Process) error {
 	// Update store with resource usage
 	info := ProcessInfo{
 		Name:          p.Name,
+		AppName:       p.AppName,
 		Pid:           p.Command.Process.Pid,
 		Status:        p.Status,
 		WorkDir:       "", // We don't track this in Process struct
@@ -624,6 +645,7 @@ func (m *Manager) updateDockerResourceUsage(p *Process) error {
 	// Update store
 	info := ProcessInfo{
 		Name:          p.Name,
+		AppName:       p.AppName,
 		Status:        p.Status,
 		CPUPercent:    p.CPUPercent,
 		MemoryUsage:   p.MemoryUsage,
@@ -650,7 +672,7 @@ func (m *Manager) ListProcesses() []*Process {
 	// Convert store processes to Process objects
 	processes := make([]*Process, 0, len(storeProcesses))
 	for _, info := range storeProcesses {
-		if process, err := m.findProcess(info.Name); err == nil {
+		if process, err := m.FindProcess(info.Name); err == nil {
 			// Update resource usage
 			if err := m.updateResourceUsage(process); err != nil {
 				m.debugf("Debug: Failed to update resource usage for %s: %v\n", process.Name, err)
@@ -688,14 +710,14 @@ func (m *Manager) StartDockerProcess(name string, containerID string, image stri
 		return fmt.Errorf("failed to create spin directory: %w", err)
 	}
 
-	// Create output directory
-	outputDir := filepath.Join(spinDir, "output")
+	// Create app-specific output directory
+	outputDir := filepath.Join(spinDir, "output", SanitizeAppName(process.AppName))
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	// Set up output file
-	outputFile := filepath.Join(outputDir, fmt.Sprintf("%s.log", name))
+	outputFile := filepath.Join(outputDir, fmt.Sprintf("%s.log", process.Name))
 	f, err := os.OpenFile(outputFile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
@@ -718,7 +740,8 @@ func (m *Manager) StartDockerProcess(name string, containerID string, image stri
 
 	// Save process information to store
 	info := ProcessInfo{
-		Name:        name,
+		Name:        process.Name,
+		AppName:     process.AppName,
 		Status:      StatusRunning,
 		Type:        ProcessTypeDocker,
 		ContainerID: containerID,

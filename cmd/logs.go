@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/afomera/spin/internal/config"
 	"github.com/afomera/spin/internal/process"
 	"github.com/spf13/cobra"
 )
@@ -26,12 +27,26 @@ Example:
 	Run: func(cmd *cobra.Command, args []string) {
 		processName := args[0]
 
+		// Load configuration
+		cfg, err := config.LoadConfig("spin.config.json")
+		if err != nil {
+			fmt.Printf("Error loading configuration: %v\n", err)
+			os.Exit(1)
+		}
+
 		// Get the process manager instance
-		manager := process.GetManager(nil)
+		manager := process.GetManager(cfg)
 
 		// Check if process exists
-		if _, err := manager.GetProcessStatus(processName); err != nil {
+		if _, err := manager.GetProcessStatus(cfg.Name, processName); err != nil {
 			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Find the process to get its log file path
+		proc, err := manager.FindProcess(processName)
+		if err != nil {
+			fmt.Printf("Error finding process: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -42,8 +57,8 @@ Example:
 			os.Exit(1)
 		}
 
-		// Construct log file path
-		logFile := filepath.Join(home, ".spin", "output", fmt.Sprintf("%s.log", processName))
+		// Use app-specific log directory
+		logFile := filepath.Join(home, ".spin", "output", process.SanitizeAppName(proc.AppName), fmt.Sprintf("%s.log", proc.Name))
 
 		// First show recent output
 		tail := exec.Command("tail", "-n", "50", logFile)

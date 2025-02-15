@@ -46,8 +46,8 @@ Example:
 			}
 		}
 
-		// Get the process manager instance
-		manager := process.GetManager(nil)
+		// Get the process manager instance with config
+		manager := process.GetManager(cfg)
 
 		// Get all processes
 		processes := manager.ListProcesses()
@@ -59,7 +59,7 @@ Example:
 		fmt.Printf("%sStopping all processes...%s\n", lg.Blue, lg.Reset)
 		for _, p := range processes {
 			fmt.Printf("Stopping %s%s%s...\n", lg.Cyan, p.Name, lg.Reset)
-			if err := manager.StopProcess(p.Name); err != nil {
+			if err := manager.StopProcess(p.AppName, p.Name); err != nil {
 				fmt.Printf("%sWarning: Failed to stop %s: %v%s\n", lg.Yellow, p.Name, err, lg.Reset)
 			}
 		}
