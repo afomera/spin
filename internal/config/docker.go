@@ -48,6 +48,30 @@ func GetDefaultHealthCheck(serviceType string) *HealthCheckConfig {
 			Retries:     3,
 			StartPeriod: "40s",
 		}
+	case "mongodb":
+		return &HealthCheckConfig{
+			Command:     []string{"mongosh", "--eval", "db.adminCommand('ping')"},
+			Interval:    "10s",
+			Timeout:     "5s",
+			Retries:     3,
+			StartPeriod: "30s",
+		}
+	case "elasticsearch":
+		return &HealthCheckConfig{
+			Command:     []string{"curl", "-f", "http://localhost:9200"},
+			Interval:    "10s",
+			Timeout:     "5s",
+			Retries:     3,
+			StartPeriod: "60s",
+		}
+	case "memcached":
+		return &HealthCheckConfig{
+			Command:     []string{"memcached-tool", "localhost:11211", "stats"},
+			Interval:    "10s",
+			Timeout:     "5s",
+			Retries:     3,
+			StartPeriod: "30s",
+		}
 	default:
 		return nil
 	}
@@ -95,6 +119,42 @@ func GetDefaultDockerConfig(serviceType string) *DockerServiceConfig {
 				"data": "/var/lib/mysql",
 			},
 			HealthCheck: GetDefaultHealthCheck("mysql"),
+		}
+	case "mongodb":
+		return &DockerServiceConfig{
+			Type:  "docker",
+			Image: "mongodb/mongodb-community-server:7.0",
+			Port:  27017,
+			Environment: map[string]string{
+				"MONGODB_INITDB_ROOT_USERNAME": "mongodb",
+				"MONGODB_INITDB_ROOT_PASSWORD": "mongodb",
+			},
+			Volumes: map[string]string{
+				"data": "/data/db",
+			},
+			HealthCheck: GetDefaultHealthCheck("mongodb"),
+		}
+	case "elasticsearch":
+		return &DockerServiceConfig{
+			Type:  "docker",
+			Image: "elasticsearch:8.11.3",
+			Port:  9200,
+			Environment: map[string]string{
+				"discovery.type":         "single-node",
+				"xpack.security.enabled": "false",
+				"ES_JAVA_OPTS":           "-Xms512m -Xmx512m",
+			},
+			Volumes: map[string]string{
+				"data": "/usr/share/elasticsearch/data",
+			},
+			HealthCheck: GetDefaultHealthCheck("elasticsearch"),
+		}
+	case "memcached":
+		return &DockerServiceConfig{
+			Type:        "docker",
+			Image:       "memcached:1.6",
+			Port:        11211,
+			HealthCheck: GetDefaultHealthCheck("memcached"),
 		}
 	default:
 		return nil

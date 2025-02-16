@@ -18,12 +18,30 @@ type RailsConfig struct {
 	Ruby        RubyConfig     `json:"ruby"`
 	RailsConfig RailsInfo      `json:"railsConfig,omitempty"`
 	Services    ServicesConfig `json:"services,omitempty"`
+	Assets      AssetConfig    `json:"assets,omitempty"`
+	Testing     TestingConfig  `json:"testing,omitempty"`
 }
 
 // ServicesConfig holds information about detected services
 type ServicesConfig struct {
-	Redis   bool `json:"redis,omitempty"`
-	Sidekiq bool `json:"sidekiq,omitempty"`
+	Redis         bool `json:"redis,omitempty"`
+	Sidekiq       bool `json:"sidekiq,omitempty"`
+	DelayedJob    bool `json:"delayed_job,omitempty"`
+	GoodJob       bool `json:"good_job,omitempty"`
+	Elasticsearch bool `json:"elasticsearch,omitempty"`
+	Memcached     bool `json:"memcached,omitempty"`
+	ActionCable   bool `json:"action_cable,omitempty"`
+}
+
+// AssetConfig holds information about asset pipeline and JavaScript bundler
+type AssetConfig struct {
+	Pipeline string `json:"pipeline"` // sprockets, webpacker, propshaft
+	Bundler  string `json:"bundler"`  // esbuild, rollup, webpack
+}
+
+// TestingConfig holds information about testing frameworks
+type TestingConfig struct {
+	Framework string `json:"framework"` // rspec, minitest
 }
 
 // RailsInfo holds Rails version and configuration
@@ -108,6 +126,16 @@ func DetectRails(path string) (*RailsConfig, error) {
 		config.Services = services
 	}
 
+	// Detect asset pipeline and bundler configuration
+	if assetConfig, err := detectAssetConfig(path); err == nil {
+		config.Assets = assetConfig
+	}
+
+	// Detect testing framework
+	if testingConfig, err := detectTestingConfig(path); err == nil {
+		config.Testing = testingConfig
+	}
+
 	// If we found at least 2 indicators, consider it a Rails app
 	if railsIndicators >= 2 {
 		return config, nil
@@ -128,18 +156,105 @@ func detectServices(path string) (ServicesConfig, error) {
 
 	content := string(data)
 
+	// Helper function to check for gem presence
+	hasGem := func(name string) bool {
+		return strings.Contains(content, fmt.Sprintf("gem '%s'", name)) ||
+			strings.Contains(content, fmt.Sprintf("gem \"%s\"", name))
+	}
+
 	// Check for Redis
-	if strings.Contains(content, "gem 'redis'") || strings.Contains(content, "gem \"redis\"") {
+	if hasGem("redis") {
 		services.Redis = true
 	}
 
 	// Check for Sidekiq
-	if strings.Contains(content, "gem 'sidekiq'") || strings.Contains(content, "gem \"sidekiq\"") {
+	if hasGem("sidekiq") {
 		services.Sidekiq = true
 		services.Redis = true // Sidekiq requires Redis
 	}
 
+	// Check for DelayedJob
+	if hasGem("delayed_job") || hasGem("delayed_job_active_record") {
+		services.DelayedJob = true
+	}
+
+	// Check for GoodJob
+	if hasGem("good_job") {
+		services.GoodJob = true
+	}
+
+	// Check for Elasticsearch
+	if hasGem("elasticsearch") || hasGem("searchkick") || hasGem("elastic-enterprise-search") {
+		services.Elasticsearch = true
+	}
+
+	// Check for Memcached
+	if hasGem("dalli") || hasGem("memcached") {
+		services.Memcached = true
+	}
+
+	// Check for ActionCable
+	cablePath := filepath.Join(path, "config", "cable.yml")
+	if _, err := os.Stat(cablePath); err == nil {
+		services.ActionCable = true
+	}
+
 	return services, nil
+}
+
+// detectAssetConfig determines the asset pipeline and JavaScript bundler configuration
+func detectAssetConfig(path string) (AssetConfig, error) {
+	config := AssetConfig{}
+
+	// Check for asset pipeline type
+	if _, err := os.Stat(filepath.Join(path, "config", "webpacker.yml")); err == nil {
+		config.Pipeline = "webpacker"
+	} else if _, err := os.Stat(filepath.Join(path, "config", "propshaft.rb")); err == nil {
+		config.Pipeline = "propshaft"
+	} else if _, err := os.Stat(filepath.Join(path, "config", "initializers", "assets.rb")); err == nil {
+		config.Pipeline = "sprockets"
+	}
+
+	// Check for JavaScript bundler
+	if _, err := os.Stat(filepath.Join(path, "package.json")); err == nil {
+		data, err := os.ReadFile(filepath.Join(path, "package.json"))
+		if err == nil {
+			content := string(data)
+			switch {
+			case strings.Contains(content, "\"@rails/webpacker\""):
+				config.Bundler = "webpack"
+			case strings.Contains(content, "\"esbuild\""):
+				config.Bundler = "esbuild"
+			case strings.Contains(content, "\"rollup\""):
+				config.Bundler = "rollup"
+			}
+		}
+	}
+
+	return config, nil
+}
+
+// detectTestingConfig determines the testing framework configuration
+func detectTestingConfig(path string) (TestingConfig, error) {
+	config := TestingConfig{}
+
+	// Check for RSpec
+	hasRspec := false
+	if _, err := os.Stat(filepath.Join(path, ".rspec")); err == nil {
+		hasRspec = true
+	}
+	if _, err := os.Stat(filepath.Join(path, "spec")); err == nil {
+		hasRspec = true
+	}
+
+	if hasRspec {
+		config.Framework = "rspec"
+	} else {
+		// Default to minitest if no RSpec found (Rails default)
+		config.Framework = "minitest"
+	}
+
+	return config, nil
 }
 
 // detectSystemRubyVersion attempts to get the Ruby version from the system Ruby

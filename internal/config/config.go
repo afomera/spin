@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/afomera/spin/internal/detector"
 )
 
 type Config struct {
@@ -70,9 +70,21 @@ type RailsConfig struct {
 		Settings map[string]string `json:"settings"`
 	} `json:"database"`
 	Services struct {
-		Redis   bool `json:"redis"`
-		Sidekiq bool `json:"sidekiq"`
+		Redis         bool `json:"redis"`
+		Sidekiq       bool `json:"sidekiq,omitempty"`
+		DelayedJob    bool `json:"delayed_job,omitempty"`
+		GoodJob       bool `json:"good_job,omitempty"`
+		Elasticsearch bool `json:"elasticsearch,omitempty"`
+		Memcached     bool `json:"memcached,omitempty"`
+		ActionCable   bool `json:"action_cable,omitempty"`
 	} `json:"services"`
+	Assets struct {
+		Pipeline string `json:"pipeline,omitempty"` // sprockets, webpacker, propshaft
+		Bundler  string `json:"bundler,omitempty"`  // esbuild, rollup, webpack
+	} `json:"assets,omitempty"`
+	Testing struct {
+		Framework string `json:"framework,omitempty"` // rspec, minitest
+	} `json:"testing,omitempty"`
 }
 
 // DatabaseYMLConfig represents Rails database.yml configuration
@@ -182,296 +194,225 @@ func ParseRepositoryString(s string) (*Repository, error) {
 
 // DetectProjectType analyzes a directory and returns a configuration based on detected project type
 func DetectProjectType(path string) (*Config, error) {
-	// Check for Rails project
-	if isRailsProject(path) {
-		return detectRailsConfig(path)
-	}
+	// Use the Rails detector first
+	railsConfig, err := detector.DetectRails(path)
+	if err == nil {
+		// Convert detector.RailsConfig to our Config structure
+		cfg := &Config{
+			Type:    "rails",
+			Version: "1.0.0",
+			Dependencies: Dependencies{
+				Services: []string{},
+				Tools:    []string{"ruby", "bundler"},
+			},
+			Processes: &ProcessConfig{
+				Procfile: "Procfile.dev",
+			},
+			Scripts: map[string]Script{
+				"setup": {
+					Command:     "bundle install",
+					Description: "Install dependencies",
+					Hooks: Hooks{
+						Post: &Hook{
+							Command:     "bundle exec rails db:setup",
+							Description: "Set up database",
+						},
+					},
+				},
+				"server": {
+					Command:     "bundle exec rails server",
+					Description: "Start Rails server",
+					Hooks: Hooks{
+						Pre: &Hook{
+							Command:     "bundle exec rails db:prepare",
+							Description: "Prepare database",
+						},
+					},
+				},
+				"test": {
+					Command:     "bundle exec rspec",
+					Description: "Run tests",
+					Hooks: Hooks{
+						Pre: &Hook{
+							Command:     "bundle exec rails db:test:prepare",
+							Description: "Prepare test database",
+						},
+					},
+				},
+			},
+			Env: map[string]EnvMap{
+				"development": {},
+			},
+			Rails: &RailsConfig{
+				Ruby: struct {
+					Version string `json:"version"`
+				}{
+					Version: railsConfig.Ruby.Version,
+				},
+				Rails: struct {
+					Version string `json:"version"`
+				}{
+					Version: railsConfig.RailsConfig.Version,
+				},
+				Database: struct {
+					Type     string            `json:"type"`
+					Settings map[string]string `json:"settings"`
+				}{
+					Type:     railsConfig.Database.Type,
+					Settings: railsConfig.Database.Settings,
+				},
+				Services: struct {
+					Redis         bool `json:"redis"`
+					Sidekiq       bool `json:"sidekiq,omitempty"`
+					DelayedJob    bool `json:"delayed_job,omitempty"`
+					GoodJob       bool `json:"good_job,omitempty"`
+					Elasticsearch bool `json:"elasticsearch,omitempty"`
+					Memcached     bool `json:"memcached,omitempty"`
+					ActionCable   bool `json:"action_cable,omitempty"`
+				}{
+					Redis:         railsConfig.Services.Redis,
+					Sidekiq:       railsConfig.Services.Sidekiq,
+					DelayedJob:    railsConfig.Services.DelayedJob,
+					GoodJob:       railsConfig.Services.GoodJob,
+					Elasticsearch: railsConfig.Services.Elasticsearch,
+					Memcached:     railsConfig.Services.Memcached,
+					ActionCable:   railsConfig.Services.ActionCable,
+				},
+				Assets: struct {
+					Pipeline string `json:"pipeline,omitempty"`
+					Bundler  string `json:"bundler,omitempty"`
+				}{
+					Pipeline: railsConfig.Assets.Pipeline,
+					Bundler:  railsConfig.Assets.Bundler,
+				},
+				Testing: struct {
+					Framework string `json:"framework,omitempty"`
+				}{
+					Framework: railsConfig.Testing.Framework,
+				},
+			},
+		}
 
-	// Add detection for other project types here
+		// Build services configuration based on detected database and other dependencies
+		services := make(map[string]*DockerServiceConfig)
 
-	return nil, fmt.Errorf("unable to detect project type")
-}
+		// Add database service if detected
+		switch railsConfig.Database.Type {
+		case "postgresql":
+			services["postgresql"] = GetDefaultDockerConfig("postgresql")
+		case "mysql":
+			services["mysql"] = GetDefaultDockerConfig("mysql")
+		}
 
-// isRailsProject checks if the directory contains a Rails project
-func isRailsProject(path string) bool {
-	gemfilePath := filepath.Join(path, "Gemfile")
-	if _, err := os.Stat(gemfilePath); err != nil {
-		return false
-	}
-
-	data, err := os.ReadFile(gemfilePath)
-	if err != nil {
-		return false
-	}
-
-	return strings.Contains(string(data), "rails")
-}
-
-// detectRailsConfig returns a configuration for a Rails project
-func detectRailsConfig(path string) (*Config, error) {
-	// Detect database configuration first to determine services
-	dbType, dbSettings, _ := detectDatabaseConfig(path)
-
-	// Build services configuration based on detected database and other dependencies
-	services := make(map[string]*DockerServiceConfig)
-
-	// Add database service if detected
-	switch dbType {
-	case "postgresql":
-		services["postgresql"] = GetDefaultDockerConfig("postgresql")
-	case "mysql":
-		services["mysql"] = GetDefaultDockerConfig("mysql")
-	}
-
-	// Check for Redis dependency
-	gemfilePath := filepath.Join(path, "Gemfile")
-	hasRedis := false
-	hasSidekiq := false
-	if data, err := os.ReadFile(gemfilePath); err == nil {
-		content := string(data)
-		hasRedis = strings.Contains(content, "redis")
-		hasSidekiq = strings.Contains(content, "sidekiq")
-		if hasRedis {
+		// Add detected services
+		if railsConfig.Services.Redis {
 			services["redis"] = GetDefaultDockerConfig("redis")
 		}
-	}
+		if railsConfig.Services.Elasticsearch {
+			services["elasticsearch"] = GetDefaultDockerConfig("elasticsearch")
+		}
+		if railsConfig.Services.Memcached {
+			services["memcached"] = GetDefaultDockerConfig("memcached")
+		}
 
-	cfg := &Config{
-		Type:    "rails",
-		Version: "1.0.0",
-		Dependencies: Dependencies{
-			Services: []string{},
-			Tools:    []string{"ruby", "bundler"},
-		},
-		Processes: &ProcessConfig{
-			Procfile: "Procfile.dev",
-		},
-		Scripts: map[string]Script{
-			"setup": {
-				Command:     "bundle install",
-				Description: "Install dependencies",
-				Hooks: Hooks{
-					Post: &Hook{
-						Command:     "bundle exec rails db:setup",
-						Description: "Set up database",
-					},
-				},
-			},
-			"server": {
-				Command:     "bundle exec rails server",
-				Description: "Start Rails server",
-				Hooks: Hooks{
-					Pre: &Hook{
-						Command:     "bundle exec rails db:prepare",
-						Description: "Prepare database",
-					},
-				},
-			},
-			"test": {
+		// Add background job services
+		if railsConfig.Services.Sidekiq {
+			if _, exists := services["redis"]; !exists {
+				services["redis"] = GetDefaultDockerConfig("redis")
+			}
+		}
+
+		cfg.Services = services
+
+		// Update dependencies based on detected services
+		for serviceName := range services {
+			cfg.Dependencies.Services = append(cfg.Dependencies.Services, serviceName)
+		}
+
+		// Update test command based on detected testing framework
+		if railsConfig.Testing.Framework == "rspec" {
+			cfg.Scripts["test"] = Script{
 				Command:     "bundle exec rspec",
-				Description: "Run tests",
+				Description: "Run RSpec tests",
 				Hooks: Hooks{
 					Pre: &Hook{
 						Command:     "bundle exec rails db:test:prepare",
 						Description: "Prepare test database",
 					},
 				},
+			}
+		} else if railsConfig.Testing.Framework == "minitest" {
+			cfg.Scripts["test"] = Script{
+				Command:     "bundle exec rails test",
+				Description: "Run Minitest tests",
+				Hooks: Hooks{
+					Pre: &Hook{
+						Command:     "bundle exec rails db:test:prepare",
+						Description: "Prepare test database",
+					},
+				},
+			}
+		}
+
+		return cfg, nil
+	}
+
+	// Try Node.js detection
+	if nodeConfig, err := detector.DetectNode(path); err == nil {
+		// Convert detector.NodeConfig to our Config structure
+		cfg := &Config{
+			Type:    "node",
+			Version: nodeConfig.Version,
+			Dependencies: Dependencies{
+				Services: []string{},
+				Tools:    append([]string{"node"}, nodeConfig.DevTools...),
 			},
-		},
-		Env: map[string]EnvMap{
-			"development": {},
-		},
-		Rails:    &RailsConfig{},
-		Services: services,
-	}
+			Scripts: make(map[string]Script),
+		}
 
-	// Update dependencies based on detected services
-	for serviceName := range services {
-		cfg.Dependencies.Services = append(cfg.Dependencies.Services, serviceName)
-	}
+		// Add services based on detected Node.js services
+		services := make(map[string]*DockerServiceConfig)
 
-	// Detect Ruby version
-	if rubyVersion, err := detectRubyVersion(path); err == nil {
-		cfg.Rails.Ruby.Version = rubyVersion
-	}
+		// Add database service if detected
+		switch nodeConfig.Services.Database {
+		case "postgresql":
+			services["postgresql"] = GetDefaultDockerConfig("postgresql")
+		case "mysql":
+			services["mysql"] = GetDefaultDockerConfig("mysql")
+		case "mongodb":
+			services["mongodb"] = GetDefaultDockerConfig("mongodb")
+		}
 
-	// Detect Rails version
-	if railsVersion, err := detectRailsVersion(path); err == nil {
-		cfg.Rails.Rails.Version = railsVersion
-	}
+		// Add cache service if detected
+		switch nodeConfig.Services.Cache {
+		case "redis":
+			services["redis"] = GetDefaultDockerConfig("redis")
+		case "memcached":
+			services["memcached"] = GetDefaultDockerConfig("memcached")
+		}
 
-	// Set database configuration
-	if dbType != "" {
-		cfg.Rails.Database.Type = dbType
-		cfg.Rails.Database.Settings = dbSettings
-	}
+		// Add search service if detected
+		if nodeConfig.Services.Search == "elasticsearch" {
+			services["elasticsearch"] = GetDefaultDockerConfig("elasticsearch")
+		}
 
-	// Set Redis and Sidekiq flags
-	cfg.Rails.Services.Redis = hasRedis
-	cfg.Rails.Services.Sidekiq = hasSidekiq
+		cfg.Services = services
 
-	return cfg, nil
-}
+		// Update dependencies based on detected services
+		for serviceName := range services {
+			cfg.Dependencies.Services = append(cfg.Dependencies.Services, serviceName)
+		}
 
-// detectRubyVersion attempts to detect the Ruby version from .ruby-version or Gemfile
-func detectRubyVersion(path string) (string, error) {
-	// Try .ruby-version first
-	rubyVersionPath := filepath.Join(path, ".ruby-version")
-	if data, err := os.ReadFile(rubyVersionPath); err == nil {
-		version := strings.TrimSpace(string(data))
-		// Remove any "ruby-" prefix
-		version = strings.TrimPrefix(version, "ruby-")
-		return version, nil
-	}
-
-	// Try Gemfile
-	gemfilePath := filepath.Join(path, "Gemfile")
-	if data, err := os.ReadFile(gemfilePath); err == nil {
-		content := string(data)
-		if idx := strings.Index(content, "ruby '"); idx != -1 {
-			version := content[idx+6:]
-			if endIdx := strings.Index(version, "'"); endIdx != -1 {
-				return version[:endIdx], nil
+		// Convert package.json scripts to our Script format
+		for _, scriptName := range nodeConfig.Scripts {
+			cfg.Scripts[scriptName] = Script{
+				Command:     fmt.Sprintf("npm run %s", scriptName),
+				Description: fmt.Sprintf("Run npm script: %s", scriptName),
 			}
 		}
+
+		return cfg, nil
 	}
 
-	return "", fmt.Errorf("could not detect Ruby version")
-}
-
-// detectRailsVersion attempts to detect the Rails version from Gemfile.lock
-func detectRailsVersion(path string) (string, error) {
-	gemfileLockPath := filepath.Join(path, "Gemfile.lock")
-	data, err := os.ReadFile(gemfileLockPath)
-	if err != nil {
-		return "", err
-	}
-
-	content := string(data)
-	lines := strings.Split(content, "\n")
-
-	// First look in the Specs section for the exact version
-	inSpecsSection := false
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "specs:" {
-			inSpecsSection = true
-			continue
-		}
-		if inSpecsSection && line == "" {
-			inSpecsSection = false
-			continue
-		}
-		if inSpecsSection && strings.HasPrefix(line, "rails (") {
-			// Extract version from within parentheses
-			start := strings.Index(line, "(")
-			end := strings.Index(line, ")")
-			if start != -1 && end != -1 && end > start {
-				version := strings.TrimSpace(line[start+1 : end])
-				// Remove any version constraints
-				if idx := strings.Index(version, ","); idx != -1 {
-					version = strings.TrimSpace(version[:idx])
-				}
-				if !strings.Contains(version, ">=") && !strings.Contains(version, "~>") {
-					return version, nil
-				}
-			}
-		}
-	}
-
-	// If not found in specs, try looking in the GEM section
-	inGemSection := false
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "GEM" {
-			inGemSection = true
-			continue
-		}
-		if inGemSection && line == "" {
-			inGemSection = false
-			continue
-		}
-		if inGemSection && strings.HasPrefix(line, "rails (") {
-			// Extract version from within parentheses
-			start := strings.Index(line, "(")
-			end := strings.Index(line, ")")
-			if start != -1 && end != -1 && end > start {
-				version := strings.TrimSpace(line[start+1 : end])
-				// Remove any version constraints
-				if idx := strings.Index(version, ","); idx != -1 {
-					version = strings.TrimSpace(version[:idx])
-				}
-				if !strings.Contains(version, ">=") && !strings.Contains(version, "~>") {
-					return version, nil
-				}
-			}
-		}
-	}
-
-	// If still not found, try looking in the Gemfile
-	gemfilePath := filepath.Join(path, "Gemfile")
-	if data, err := os.ReadFile(gemfilePath); err == nil {
-		content := string(data)
-		lines := strings.Split(content, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "gem 'rails'") || strings.HasPrefix(line, "gem \"rails\"") {
-				// Look for version in quotes after rails
-				if start := strings.Index(line, "'"); start != -1 {
-					version := line[start+1:]
-					if end := strings.Index(version, "'"); end != -1 {
-						version = version[:end]
-						if !strings.Contains(version, ">=") && !strings.Contains(version, "~>") {
-							return version, nil
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("could not detect Rails version")
-}
-
-// detectDatabaseConfig attempts to detect database configuration from Gemfile and database.yml
-func detectDatabaseConfig(path string) (string, map[string]string, error) {
-	// First check Gemfile for database gems
-	gemfilePath := filepath.Join(path, "Gemfile")
-	if data, err := os.ReadFile(gemfilePath); err == nil {
-		content := string(data)
-		switch {
-		case strings.Contains(content, "gem 'pg'"):
-			return "postgresql", nil, nil
-		case strings.Contains(content, "gem 'mysql2'"):
-			return "mysql", nil, nil
-		case strings.Contains(content, "gem 'sqlite3'"):
-			return "sqlite3", nil, nil
-		}
-	}
-
-	// Then check database.yml
-	dbConfigPath := filepath.Join(path, "config", "database.yml")
-	if data, err := os.ReadFile(dbConfigPath); err == nil {
-		var dbConfig DatabaseYMLConfig
-		if err := yaml.Unmarshal(data, &dbConfig); err == nil {
-			if dev, ok := dbConfig["development"]; ok {
-				settings := make(map[string]string)
-				if dev.Database != "" {
-					settings["database"] = dev.Database
-				}
-				if dev.Host != "" {
-					settings["host"] = dev.Host
-				}
-				if dev.Port != 0 {
-					settings["port"] = fmt.Sprintf("%d", dev.Port)
-				}
-				if dev.Username != "" {
-					settings["username"] = dev.Username
-				}
-				return dev.Adapter, settings, nil
-			}
-		}
-	}
-
-	return "", nil, fmt.Errorf("could not detect database configuration")
+	return nil, fmt.Errorf("unable to detect project type")
 }
